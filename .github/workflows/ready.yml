@@ -37,7 +37,8 @@ jobs:
       - run: npm test
       - run: npm run build
       - name: Point the page at the server
-        run: echo "{ \"server\": \"${SHOALLHELL_SERVER}\" }" > dist/config.json
+        run: |
+          printf '{ "server": "%s" }\n' "$SHOALLHELL_SERVER" > dist/config.json
       - name: Commit the built site to `ready`
         run: |
           rm -rf /tmp/ready && mkdir -p /tmp/ready/site
