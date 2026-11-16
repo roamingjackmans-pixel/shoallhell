@@ -1,0 +1,56 @@
+# Gets each push to main ready for josephjackman.com/games/shoallhell/.
+# Type checks, runs the tests, builds the game, and puts the built site in `site/` on the `ready` branch.
+# The `games` repo (roamingjackmans-pixel/games) publishes `site/` from `ready` (deploy/library.json:
+# { "folder": "shoallhell", "repo": "shoallhell", "publish": "site" }). It looks for new `ready` commits every
+# 10 minutes, or hears right away when this repo has a GAMES_DEPLOY_TOKEN secret.
+#
+# The page finds the accounts/co-op server from site/config.json, written from the SHOALLHELL_SERVER repository
+# variable (for example https://shoallhell.fly.dev). Without it the page expects the server on the same site.
+name: Ready for the games site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ready
+  cancel-in-progress: true
+
+jobs:
+  ready:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_TOKEN: ${{ secrets.GAMES_DEPLOY_TOKEN }}
+      SHOALLHELL_SERVER: ${{ vars.SHOALLHELL_SERVER }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Point the page at the server
+        run: echo "{ \"server\": \"${SHOALLHELL_SERVER}\" }" > dist/config.json
+      - name: Commit the built site to `ready`
+        run: |
+          rm -rf /tmp/ready && mkdir -p /tmp/ready/site
+          cp -r dist/. /tmp/ready/site/
+          cd /tmp/ready
+          git init -q -b ready
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Built from ${GITHUB_SHA}"
+          git push --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${GITHUB_REPOSITORY}.git" ready
+      - name: Tell the games site
+        if: env.DEPLOY_TOKEN != ''
+        env:
+          GH_TOKEN: ${{ env.DEPLOY_TOKEN }}
+        run: gh workflow run deploy.yml -R roamingjackmans-pixel/games
