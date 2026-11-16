@@ -5,7 +5,7 @@
 # 10 minutes, or hears right away when this repo has a GAMES_DEPLOY_TOKEN secret.
 #
 # The page finds the accounts/co-op server from site/config.json, written from the SHOALLHELL_SERVER repository
-# variable (for example https://shoallhell.fly.dev). Without it the page expects the server on the same site.
+# variable (default https://shoallhell.fly.dev, the Fly.io app in fly.toml).
 name: Ready for the games site
 
 on:
@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DEPLOY_TOKEN: ${{ secrets.GAMES_DEPLOY_TOKEN }}
-      SHOALLHELL_SERVER: ${{ vars.SHOALLHELL_SERVER }}
+      SHOALLHELL_SERVER: ${{ vars.SHOALLHELL_SERVER || 'https://shoallhell.fly.dev' }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

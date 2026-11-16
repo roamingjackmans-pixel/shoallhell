@@ -65,7 +65,7 @@ Two parts, like Roleplay20:
 1. **The game page** (static) on GitHub Pages through the `games` repo. Every push to `main` runs
    `.github/workflows/ready.yml`: type check, tests, build, then the built site goes to `site/` on the `ready`
    branch. Add `{ "folder": "shoallhell", "repo": "shoallhell", "publish": "site" }` to the games repo's
-   `deploy/library.json`. Set the repository variable `SHOALLHELL_SERVER` to the server's address.
+   `deploy/library.json`. The page talks to https://shoallhell.fly.dev unless the repository variable `SHOALLHELL_SERVER` says otherwise.
 2. **The server** (accounts, saves, co-op relay) on Fly.io: `fly launch --no-deploy --copy-config`, then
    `fly volumes create shoallhell_data --size 1 --region ord`, then `fly deploy`. About $2–4 a month.
 
