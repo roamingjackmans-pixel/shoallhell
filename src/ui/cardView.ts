@@ -86,7 +86,13 @@ function halfEl(c: Card, which: 'top' | 'bot', half: Half, cls: string): HTMLEle
   const el = h(`div.half.${which}`);
   for (const st of half.steps) {
     const txt = stepText(st);
-    if (txt) el.appendChild(h('span.step', { html: txt }));
+    const stickers = st.stickers ?? (st.sticker ? ['Element sticker'] : []);
+    if (txt)
+      el.appendChild(
+        stickers.length
+          ? h('span.step.enh', { html: `${txt} <span class="sticker">✦</span>`, title: `Enhanced: ${stickers.join(', ')}` })
+          : h('span.step', { html: txt }),
+      );
     const u = (st as { use?: Consume }).use;
     if (u) el.appendChild(h(`span.use.el-${u.el === 'any' ? 'holy' : u.el}`, useText(u)));
   }
@@ -103,7 +109,9 @@ export function cardEl(c: Card, opts: { small?: boolean } = {}): HTMLElement {
   const cls = CLASSES[c.cls];
   const el = h(`div.card${opts.small ? '.small' : ''}`, { style: { '--cls': cls?.color ?? '#555' } as unknown as Record<string, string> });
   el.style.setProperty('--cls', cls?.color ?? '#555');
-  el.appendChild(h('div.ch', h('span', c.name), h('span.lvl', `Lv ${c.level}`)));
+  const stickers = [...c.top.steps, ...c.bot.steps].reduce((n, st) => n + (st.stickers?.length ?? 0), 0);
+  el.appendChild(h('div.ch', h('span', c.name), h('span.lvl', stickers ? `✦${stickers} · Lv ${c.level}` : `Lv ${c.level}`)));
+  if (stickers) el.classList.add('enhanced');
   el.appendChild(halfEl(c, 'top', c.top, c.cls));
   el.appendChild(h('div.init', String(c.init).padStart(2, '0')));
   el.appendChild(halfEl(c, 'bot', c.bot, c.cls));

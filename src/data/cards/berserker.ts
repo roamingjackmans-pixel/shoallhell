@@ -1,8 +1,8 @@
 // Berserker: first in, last out. Spends his own HP on huge axe swings, drinks it back by hitting things, sets the rest on fire.
-import { H, L, P, atk, deck, heal, infuse, loot, mv, ret, use, xp } from '../dsl';
+import { H, L, P, atk, deck, heal, infuse, loot, mv, ret, shield, use, xp } from '../dsl';
 
 export const BERSERKER = deck('berserker', [
-  // ---- level 1 (hand 10, so one spare to leave at home)
+  // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 11, 'Headlong', H([mv(3), atk(2)]), H([mv(4)]), 'Look before you leap. Or after. Or never.'],
   [1, 23, 'Twin Chop', H([atk(2, { targets: 2 })]), H([mv(3)])],
   [1, 31, 'Bite the Axe', H([atk(4, { selfDmg: 1 })]), H([mv(2), ret(1)])],
@@ -14,6 +14,8 @@ export const BERSERKER = deck('berserker', [
   [1, 38, 'Hot Axes', H([atk(3, { type: 'fire', use: use('fire', { cond: ['wound'], text: 'Wound' }) })]), H([mv(2), infuse('fire')])],
   [1, 74, 'Shrug It Off', H([atk(2, { push: 1 })]), H([heal(3), ret(1)]), 'Walk it off. Run it off. Axe it off.'],
   [1, 50, 'Burning Rush', L([mv(3), atk(4, { aoe: 'cleave', type: 'fire', selfDmg: 1, xp: 2 })]), H([mv(3, true)])],
+  [1, 35, 'Torch the Lot', H([atk(2, { aoe: 'cone', type: 'fire', use: use('fire', { cond: ['wound'], text: 'Wound' }) })]), H([mv(2), infuse('fire')]), 'Matches are for people with patience.'],
+  [1, 78, 'Thick Skull', H([ret(2), shield(1)]), H([mv(2), heal(2)]), 'Nothing in there to hurt.'],
   // ---- level 2
   [2, 14, 'Overswing', H([atk(5, { selfDmg: 2, push: 1 })]), H([mv(4)])],
   [2, 62, 'Lick the Wounds', H([atk(3, { drain: 2 })]), H([heal(2), infuse('fire')])],

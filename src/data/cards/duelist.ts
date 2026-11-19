@@ -3,7 +3,7 @@
 import { H, L, P, atk, buff, deck, infuse, loot, mv, shield, tp, use, xp } from '../dsl';
 
 export const DUELIST = deck('duelist', [
-  // ---- level 1 (hand 12, so one spare to leave at home)
+  // ---- level 1 (hand 12, so three spare to leave at home)
   [1, 8, 'One-Two', H([atk(2), atk(1)]), H([mv(4)]), 'The second one is the one you remember.'],
   [1, 13, 'Flourish', H([atk(2, { cond: ['wound'] })]), H([mv(3)])],
   [1, 21, 'Cheap Shot', H([atk(3, { cond: ['muddle'] })]), H([mv(3), loot(1)])],
@@ -17,6 +17,8 @@ export const DUELIST = deck('duelist', [
   [1, 52, 'Shadow Step', H([tp(3), atk(2, { type: 'void' })]), H([mv(2), infuse('void')])],
   [1, 6, 'Quickdraw', H([atk(2, { range: 2 })]), H([mv(4)])],
   [1, 28, 'Stab Stab', H([atk(2), atk(1, { use: use('void', { n: 1, cond: ['wound'], text: '+1 Attack, Wound' }) })]), H([mv(3), loot(1)])],
+  [1, 24, 'Twist the Knife', H([atk(2, { type: 'void', use: use('void', { n: 2, text: '+2 Attack' }) })]), H([mv(3)]), 'It was already in. This part is just admin.'],
+  [1, 41, 'Smoke and Mirrors', H([atk(2, { cond: ['muddle'] }), infuse('void')]), H([tp(2), shield(1)])],
   // ---- level 2
   [2, 11, 'Flurry', H([atk(2), atk(2, { cond: ['wound'] })]), H([mv(4)])],
   [2, 39, 'Edge of Nothing', L([xp(1)], P('cond', 0, 5, 'Your next five attacks Wound', 'wound')), H([mv(3), infuse('void')])],

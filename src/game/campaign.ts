@@ -1,10 +1,11 @@
 // The account's save: the union (characters), unlocked classes, campaign progress, stats and tasks. Scenario results
 // are applied here. Pure functions over plain JSON so the server can store the profile as-is.
-import { CLASS_CARDS, starterCards } from '../data/cards';
+import { card as cardById, CLASS_CARDS, starterCards } from '../data/cards';
 import { CLASSES, levelForXp, MAX_LEVEL } from '../data/classes';
 import { ITEMS, smallSlots } from '../data/items';
 import { DELVE_NAMES, DEPTHS, SCENARIOS, scenarioById, type ScenarioDef } from '../data/story';
 import { TASKS, type StatKey } from '../data/tasks';
+import { enhBlocked, enhCost, type Enh, type EnhKind, type EnhMap } from './enhance';
 import type { HeroSetup } from './rules';
 import type { CombatState, HeroUnit, Objective } from './types';
 
@@ -32,6 +33,10 @@ export interface Character {
   scenarios: number;
   created: number;
   retired?: boolean;
+  /** enhancement stickers bought at the Enhancer, by card id */
+  enh?: EnhMap;
+  /** Bless cards waiting for the next scenario (from donations at the Boiler) */
+  blessed?: number;
 }
 
 /** One campaign: its own union of characters and its own way down through the Depths. */
@@ -45,6 +50,8 @@ export interface Campaign {
   seenDepths: number[];
   /** gold waiting to be claimed from tasks */
   fund: number;
+  /** gold given to the Boiler in this campaign: every 100 raises prosperity */
+  donated?: number;
   ending?: boolean;
   difficulty: 'easy' | 'normal' | 'hard';
 }
@@ -76,6 +83,7 @@ export function newCampaign(name: string): Campaign {
     completed: [],
     seenDepths: [],
     fund: 0,
+    donated: 0,
     difficulty: 'normal',
   };
 }
@@ -152,6 +160,11 @@ export function upgradeProfile(raw: Profile): Profile {
       c.perks ??= [];
       c.pendingCards ??= [];
       c.pendingPerks ??= 0;
+      c.enh ??= {};
+      c.blessed ??= 0;
+      // level-1 cards added to a class since the character was made join their pool
+      c.cards ??= [];
+      for (const id of starterCards(c.cls)) if (!c.cards.includes(id)) c.cards.push(id);
       // older saves carried everything that fit: start them equipped the same way
       if (!Array.isArray(c.equipped)) {
         c.equipped = [];
@@ -176,6 +189,8 @@ export function makeCharacter(name: string, cls: string): Character {
     hand: [],
     items: [],
     equipped: [],
+    enh: {},
+    blessed: 0,
     perks: [],
     pendingCards: [],
     pendingPerks: 0,
@@ -187,7 +202,8 @@ export function makeCharacter(name: string, cls: string): Character {
 export function maxHp(c: Character): number {
   const def = CLASSES[c.cls]!;
   let hp = def.hp[Math.min(MAX_LEVEL, c.level) - 1]!;
-  if (c.items.includes('hardhat')) hp += 2;
+  // worn items that raise maximum HP (Hard Hat, jumpers, helmets)
+  for (const id of loadout(c)) hp += ITEMS[id]?.fx.maxHp ?? 0;
   return hp;
 }
 
@@ -304,6 +320,8 @@ export function heroSetup(c: Character, owner: string): HeroSetup {
     cards: handFor(c),
     items: loadout(c),
     perks: c.perks.map((i) => def.perks[i]?.[1]).filter((x): x is string => !!x),
+    enh: c.enh ?? {},
+    bless: c.blessed ?? 0,
   };
 }
 
@@ -412,6 +430,7 @@ export function applyResult(p: Profile, s: CombatState, owner: string, sc: Scena
     c.xp += xpGained;
     c.gold += goldGained;
     c.scenarios++;
+    c.blessed = 0; // the Boiler's blessing lasts one scenario
     const after = levelForXp(c.xp);
     for (let l = before + 1; l <= after; l++) {
       c.pendingCards.push(l);
@@ -504,5 +523,47 @@ export function sellItem(c: Character, id: string): string | null {
   c.items = c.items.filter((x) => x !== id);
   c.equipped = (c.equipped ?? []).filter((x) => x !== id);
   c.gold += Math.floor(it.cost / 2);
+  return null;
+}
+
+// ------------------------------------------------------------------ the Enhancer and the Boiler
+
+/** Buy an enhancement sticker for one of this character's cards. Returns an error, or null when bought. */
+export function enhanceCard(c: Character, cardId: string, half: 'top' | 'bot', step: number, kind: EnhKind): string | null {
+  if (!c.cards.includes(cardId)) return 'Not one of their cards.';
+  const cd = cardById(cardId);
+  if (!cd) return 'No such card.';
+  c.enh ??= {};
+  const have: Enh[] = c.enh[cardId] ?? [];
+  const why = enhBlocked(cd, half, step, kind, have);
+  if (why) return why;
+  const cost = enhCost(cd, half, step, kind, have);
+  if (c.gold < cost) return 'Not enough gold.';
+  c.gold -= cost;
+  c.enh[cardId] = [...have, { half, step, kind }];
+  return null;
+}
+
+export const DONATION = 10;
+export const DONATION_BLESS = 2;
+export const PROSPERITY_STEP = 100;
+
+/** Prosperity: 1 + one level per 100 gold donated in this campaign. */
+export function prosperity(k: Campaign): number {
+  return 1 + Math.floor((k.donated ?? 0) / PROSPERITY_STEP);
+}
+
+/** The deepest Depth Gary stocks for: how far down the campaign has been, or its prosperity if higher. */
+export function shopDepth(k: Campaign): number {
+  return Math.max(deepest(k), prosperity(k));
+}
+
+/** Donate to the Boiler: 10 gold for 2 Bless cards in the next scenario (one blessing at a time). */
+export function donate(k: Campaign, c: Character): string | null {
+  if ((c.blessed ?? 0) > 0) return 'Already blessed for the next scenario.';
+  if (c.gold < DONATION) return 'Not enough gold.';
+  c.gold -= DONATION;
+  c.blessed = DONATION_BLESS;
+  k.donated = (k.donated ?? 0) + DONATION;
   return null;
 }

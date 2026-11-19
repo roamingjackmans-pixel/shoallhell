@@ -2,7 +2,7 @@
 import { H, L, P, atk, deck, heal, infuse, loot, mv, shield, use, xp } from '../dsl';
 
 export const OCCULTIST = deck('occultist', [
-  // ---- level 1 (hand 10, so one spare to leave at home)
+  // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 21, 'Dawn Cut', H([atk(3, { type: 'holy' })]), H([mv(3)]), 'Up at five. Cutting by five past.'],
   [1, 37, 'Blood for Light', H([atk(4, { type: 'holy', selfDmg: 1 })]), H([mv(2), heal(2)])],
   [1, 52, 'Sunray', H([atk(2, { aoe: 'line3', type: 'holy' })]), H([mv(2), infuse('holy')])],
@@ -14,6 +14,8 @@ export const OCCULTIST = deck('occultist', [
   [1, 82, 'Hair Shirt', H([atk(2, { type: 'holy' }), shield(1)]), L([xp(1)], P('atk', 1, 5, '+1 Attack on your next five attacks')), 'Itchy. Holy. Mostly itchy.'],
   [1, 58, 'Sunburst', L([atk(3, { aoe: 'blast', range: 3, type: 'holy', xp: 2, use: use('holy', { cond: ['stun'], text: 'Stun' }) })]), H([mv(2), heal(2)])],
   [1, 40, 'Vigil', H([atk(2, { range: 2, type: 'holy' })]), H([heal(3)])],
+  [1, 12, 'Open Vein', H([atk(3, { type: 'holy', selfDmg: 1, cond: ['wound'] })]), H([mv(3)]), 'A little off the top. Yours first.'],
+  [1, 91, 'Ashes on the Brow', H([heal(2, { use: use('holy', { heal: 2, text: '+2 Heal' }) }), shield(1)]), H([mv(3)]), 'Smudged on by hand. Mostly soot.'],
   // ---- level 2
   [2, 33, 'Martyr’s Edge', H([atk(5, { type: 'holy', selfDmg: 2 })]), H([mv(3)])],
   [2, 76, 'Light Through Wounds', H([atk(2, { range: 3, type: 'holy', drain: 1 })]), H([heal(2), infuse('holy')])],

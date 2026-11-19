@@ -1,9 +1,9 @@
 // Battlemage: a sword the size of a shelf with a rune on it. Sword hits infuse Magic, and the next swing spends it for
 // reach, pierce, push or a shield. Melee first, a spell when the sword will not fit.
-import { H, L, P, atk, deck, heal, infuse, loot, mv, shield, tp, use, xp } from '../dsl';
+import { H, L, P, atk, deck, heal, infuse, loot, mv, ret, shield, tp, use, xp } from '../dsl';
 
 export const SPEARMAN = deck('spearman', [
-  // ---- level 1 (hand 10, so one spare to leave at home)
+  // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 34, 'Shelf Swing', H([atk(3, { aoe: 'cleave' })]), H([mv(3)]), 'Reach for the top shelf. Then keep reaching.'],
   [1, 50, 'Charged Edge', H([atk(2, { type: 'magic' }), infuse('magic')]), H([mv(3)])],
   [1, 27, 'Reaching Thrust', H([mv(2), atk(3, { use: use('magic', { n: 1, range: 2, text: '+1 Attack, Range 2' }) })]), H([mv(4)])],
@@ -15,6 +15,8 @@ export const SPEARMAN = deck('spearman', [
   [1, 57, 'Blinkstrike', H([tp(2), atk(2, { type: 'magic' })]), H([mv(2), shield(1)])],
   [1, 78, 'Arcane Overload', L([atk(4, { aoe: 'cone', type: 'magic', xp: 2 })]), H([mv(2), infuse('magic')])],
   [1, 46, 'Read Aloud', H([atk(2, { range: 3, type: 'magic', use: use('magic', { n: 2, text: '+2 Attack' }) })]), H([mv(3)]), 'Page one. Also the only page.'],
+  [1, 24, 'Overhead Chop', H([atk(3, { use: use('magic', { n: 1, push: 1, text: '+1 Attack, Push 1' }) })]), H([mv(3)]), 'Mind your head. Too late.'],
+  [1, 65, 'Bookend', H([shield(1), ret(2)]), H([mv(2), infuse('magic')]), 'Holds everything up. Holds everything back.'],
   // ---- level 2
   [2, 45, 'Shelf Life', H([atk(4, { aoe: 'cleave', use: use('magic', { n: 1, push: 1, text: '+1 Attack, Push 1' }) })]), H([mv(3)])],
   [2, 68, 'Glowen Battery', H([atk(3, { type: 'magic' }), infuse('magic')]), H([mv(3), heal(2)])],

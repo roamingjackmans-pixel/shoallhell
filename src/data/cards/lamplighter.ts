@@ -2,7 +2,7 @@
 import { H, L, P, atk, bless, buff, deck, heal, infuse, loot, mv, shield, summon, use, xp } from '../dsl';
 
 export const LAMPLIGHTER = deck('lamplighter', [
-  // ---- level 1 (hand 11, so one spare to leave at home)
+  // ---- level 1 (hand 11, so three spare to leave at home)
   [1, 22, 'Light the Way', H([atk(2, { range: 4, type: 'holy' })]), H([mv(3), loot(1)]), 'Thirty years of stairs. The Shoal has fewer stairs. She misses them.'],
   [1, 64, 'Mend the Wick', H([heal(3, { range: 3 })]), H([mv(3)])],
   [1, 41, 'Strike a Match', H([atk(2, { range: 3, type: 'holy' }), infuse('holy')]), H([mv(2), heal(1, { range: 3 })])],
@@ -15,6 +15,8 @@ export const LAMPLIGHTER = deck('lamplighter', [
   [1, 36, 'Flare', L([atk(3, { range: 3, aoe: 'blast', type: 'holy', cond: ['muddle'], xp: 2 })]), H([mv(2), loot(2)]), 'Everything in the dark is now in the light. Including that.'],
   [1, 70, 'Lantern Swing', H([atk(2, { aoe: 'cleave', type: 'holy' })]), H([heal(2), shield(1)])],
   [1, 59, 'Everburning Lamp', H([atk(2, { range: 4, type: 'holy', cond: ['muddle'] })]), L([xp(1)], P('drain', 1, 0, 'Heal 1 whenever you attack, for the rest of the scenario'))],
+  [1, 44, 'Hot Wax', H([atk(2, { range: 3, type: 'holy', cond: ['wound'] })]), H([mv(3)]), 'Drips where it likes. Usually down a collar.'],
+  [1, 93, 'Lamp Post', H([shield(2, { range: 3, use: use('holy', { shield: 1, text: '+1 Shield' }) })]), H([mv(2), heal(2, { range: 3 })]), 'Something to lean on. Something to hide behind.'],
   // ---- level 2
   [2, 26, 'Evening Round', H([heal(2, { range: 2, all: true })]), H([mv(4), infuse('holy')])],
   [2, 75, 'Guiding Light', H([atk(3, { range: 3, type: 'holy', use: use('holy', { n: 1, range: 1, text: '+1 Attack, +1 Range' }) })]), H([mv(1), buff(['regenerate'], { range: 3 })])],

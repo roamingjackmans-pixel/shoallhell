@@ -2,7 +2,7 @@
 import { H, L, P, atk, buff, curse, deck, heal, infuse, loot, mv, shield, summon, use, xp } from '../dsl';
 
 export const NOTARY = deck('notary', [
-  // ---- level 1 (hand 11, so one spare to leave at home)
+  // ---- level 1 (hand 11, so three spare to leave at home)
   [1, 21, 'Sign Here', H([atk(2, { range: 2, cond: ['muddle'] })]), H([mv(3)]), 'And here. And initial here. And here.'],
   [1, 34, 'Cease and Desist', H([atk(2, { range: 2, cond: ['disarm'] })]), H([mv(2), shield(1)])],
   [1, 46, 'Red Tape', H([atk(2, { range: 2, cond: ['immobilize'] })]), H([mv(2), infuse('void')])],
@@ -15,6 +15,8 @@ export const NOTARY = deck('notary', [
   [1, 27, 'Billable Hours', H([mv(2), atk(2, { range: 2 })]), L([xp(1)], P('cond', 0, 4, 'Your next four attacks Poison', 'poison'))],
   [1, 92, 'Out of Office', H([buff(['invisible'])]), H([mv(3), shield(1)]), 'Back Monday. Which Monday is unclear.'],
   [1, 52, 'Notarise', H([atk(2, { range: 2, type: 'void', use: use('void', { n: 1, targets: 2, text: '+1 Attack, +1 Target' }) })]), H([curse(1, 2), mv(2)])],
+  [1, 25, 'Late Fee', H([atk(2, { range: 2, cond: ['wound'], use: use('void', { n: 1, text: '+1 Attack' }) })]), H([mv(3)]), 'Charged daily. Compounded hourly.'],
+  [1, 81, 'Disclaimer', H([shield(2), curse(1, 2)]), H([mv(3), infuse('void')]), 'The Notary accepts no responsibility for anything, ever.'],
   // ---- level 2
   [2, 38, 'Please Hold', H([atk(2, { range: 3, aoe: 'blast', cond: ['muddle'] })]), H([mv(3)]), 'Your call is important to us.'],
   [2, 77, 'Delegate', H([atk(2, { range: 2, targets: 2, cond: ['muddle'] })]), L([summon('intern', 2)]), 'Someone has to do it. It will not be the Notary.'],

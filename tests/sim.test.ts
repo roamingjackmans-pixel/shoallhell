@@ -56,6 +56,8 @@ function botStep(s: CombatState): boolean {
     if (err) throw new Error(err);
     return true;
   }
+  // a step that can spend an element: spend it (alternate scenarios would also work; the sims just spend)
+  if (t.cur.elAsk) return act(s, 'p', { t: 'useEl', uid: h.uid, el: t.cur.elAsk[0]! }) === null;
   const st = t.cur.steps[t.cur.step]!;
   if (st.t === 'move') {
     const opts = moveOptions(s, h);

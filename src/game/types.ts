@@ -2,6 +2,7 @@
 // The whole CombatState is plain JSON (no Maps/Sets/classes) so the co-op host can send it to guests as-is.
 import type { DamageType } from '../draw/dtypes';
 export type { DamageType };
+import type { EnhMap } from './enhance';
 
 /** The four infusable elements: Dungeon Joe's damage types minus Physical. */
 export type Elem = 'fire' | 'magic' | 'void' | 'holy';
@@ -31,7 +32,14 @@ export interface Consume {
   text?: string;
 }
 
-export type Step =
+/** Enhancement stickers on an ability line (labels shown on the card); an infuse step added by a sticker says so. */
+export interface StepStickers {
+  stickers?: string[];
+  sticker?: boolean;
+}
+
+export type Step = StepStickers & StepBase;
+export type StepBase =
   | { t: 'move'; n: number; jump?: boolean }
   | {
       t: 'attack';
@@ -271,11 +279,13 @@ export interface HeroUnit extends UnitBase {
   modDiscard: Mod[];
   items: { id: string; state: 'ready' | 'spent' | 'consumed' }[];
   /** one-shot bonuses from items (poison dagger, crowbar, spoon) */
-  next: { atk?: number; cond?: Cond[]; adv?: boolean; move?: number; jump?: boolean };
+  next: { atk?: number; pierce?: number; push?: number; cond?: Cond[]; adv?: boolean; move?: number; jump?: boolean };
   /** short rest already taken this round */
   shortRested: boolean;
   /** a short rest in progress: the card it will lose, and whether the 1 HP reroll is still on offer */
   restDraw?: { card: string } | null;
+  /** enhancement stickers on this hero's cards, by card id */
+  enh?: EnhMap;
   ready: boolean;
   escaped?: boolean;
   stats: { dmg: number; kills: number; heals: number; infusions: number; rangedKills: number; elitesKilled: number; lost: number };
@@ -342,7 +352,12 @@ export interface HeroTurn {
   /** halves already played this turn */
   used: { card: string; half: 'top' | 'bot'; basic: boolean }[];
   /** the half being played and the index of the step it is on */
-  cur: null | { card: string; half: 'top' | 'bot'; basic: boolean; step: number; steps: Step[]; movesLeft?: number; jump?: boolean; targetsHit: string[]; anyHit: boolean; stepReady: boolean };
+  cur: null | { card: string; half: 'top' | 'bot'; basic: boolean; step: number; steps: Step[]; movesLeft?: number; jump?: boolean; targetsHit: string[]; anyHit: boolean; stepReady: boolean;
+    /** the step can spend one of these elements for its bonus: waiting for the player to say yes (which) or no */
+    elAsk?: Elem[];
+    /** the player's answer for the current step: the element to spend, or null to keep it */
+    elChoice?: Elem | null;
+  };
   /** turn-start effects already applied */
   started: boolean;
 }
@@ -433,6 +448,8 @@ export interface CombatState {
    * turn. Co-op guests receive '1' instead of the snapshot.
    */
   undo?: string | null;
+  /** the scenario goal was met this round: it is won once the round has played out (the text to win with) */
+  goalMet?: string | null;
   /**
    * Pushes a hero caused that wait for the player to choose where the enemy goes (one hex at a time; when only one hex
    * works it is used without asking). sx/sy is where the push comes from.

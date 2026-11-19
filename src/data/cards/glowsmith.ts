@@ -2,7 +2,7 @@
 import { H, L, P, atk, buff, deck, heal, infuse, loot, mv, ret, shield, summon, use, xp } from '../dsl';
 
 export const GLOWSMITH = deck('glowsmith', [
-  // ---- level 1 (hand 10, so one spare to leave at home)
+  // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 26, 'Hot Rivet', H([atk(3, { type: 'fire' })]), H([mv(3)]), 'Rivets go in hot. So do Glowsmiths.'],
   [1, 62, 'Glowen Turret', L([summon('glow_turret', 2)]), H([mv(2), shield(1)]), 'Points at the bad things. Mostly.'],
   [1, 48, 'Tin Apprentice', H([atk(2), infuse('fire')]), L([summon('tin_helper', 2)]), 'Union rate: one bolt a day.'],
@@ -14,6 +14,8 @@ export const GLOWSMITH = deck('glowsmith', [
   [1, 20, 'Sparks Fly', H([atk(2, { aoe: 'ring', type: 'fire' })]), H([mv(4)])],
   [1, 86, 'Apron of Many Burns', H([atk(2), shield(1)]), L([xp(1)], P('shield', 1, 6, 'Shield 1 the next six times you are attacked'))],
   [1, 43, 'Hammer and Tongs', H([atk(3, { use: use('fire', { n: 2, text: '+2 Attack' }) })]), H([heal(2, { range: 3 })])],
+  [1, 33, 'Cinder Flick', H([atk(2, { range: 3, type: 'fire', use: use('fire', { n: 1, text: '+1 Attack' }) })]), H([mv(3)]), 'Off the end of the tongs. Mind your eyebrows.'],
+  [1, 58, 'Oil Can', H([heal(2, { range: 3 }), shield(1, { range: 3 })]), H([mv(2), infuse('fire')]), 'Squeaks less. Burns more.'],
   // ---- level 2
   [2, 37, 'Riveted Plating', H([shield(1, { range: 3, all: true }), heal(1)]), H([mv(3), infuse('fire')]), 'Bolts everyone to something sturdier.'],
   [2, 80, 'Scrap Heap', H([atk(3, { push: 2 })]), H([mv(2), loot(2)])],

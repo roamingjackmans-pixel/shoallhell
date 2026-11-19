@@ -65,6 +65,7 @@ it.skipIf(!ROOM)(
           const card = used ? me.picked.find((c) => c !== used.card)! : me.picked[0]!;
           return send({ t: 'half', uid: me.uid, card, half: used ? (used.half === 'top' ? 'bot' : 'top') : 'top', basic: false });
         }
+        if (t.cur.elAsk) return send({ t: 'useEl', uid: me.uid, el: t.cur.elAsk[0]! });
         const st = t.cur.steps[t.cur.step]!;
         if (st.t === 'move') {
           const opts = moveOptions(s, me);

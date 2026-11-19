@@ -3,7 +3,7 @@
 import { H, L, P, atk, deck, heal, loot, mv, ret, shield, use, xp } from '../dsl';
 
 export const BRUTE = deck('brute', [
-  // ---- level 1 (hand 10, so one spare to leave at home)
+  // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 12, 'Trample', H([mv(3), atk(2, { push: 1 })]), H([mv(3)])],
   [1, 29, 'Shove', H([atk(2, { push: 3 })]), H([mv(2), ret(1)])],
   [1, 41, 'Shoulder Charge', H([mv(2), atk(2, { push: 2 })]), H([mv(4)])],
@@ -15,6 +15,8 @@ export const BRUTE = deck('brute', [
   [1, 52, 'Wind Up', H([atk(3, { use: use('any', { n: 1, push: 2, text: '+1 Attack, Push 2' }) })]), H([mv(2), loot(1)])],
   [1, 87, 'Slightly Larger Hammer', H([atk(3)]), L([xp(1)], P('atk', 1, 5, '+1 Attack on your next five attacks'))],
   [1, 69, 'Spin the Hammer', L([atk(3, { aoe: 'ring', push: 1, xp: 2 })]), H([mv(2), heal(2)])],
+  [1, 21, 'Headbutt', H([atk(3, { cond: ['muddle'] })]), H([mv(3)]), 'Uses the hard bit. It is all the hard bit.'],
+  [1, 47, 'Elbow Room', H([atk(1, { aoe: 'ring', push: 1 })]), H([mv(2), shield(1)])],
   // ---- level 2
   [2, 46, 'Knock Through', H([atk(4, { push: 2, use: use('any', { cond: ['stun'], text: 'Stun' }) })]), H([mv(3)])],
   [2, 83, 'Doorstop', H([shield(2), ret(2)]), H([mv(2), heal(2)]), 'Nobody gets past. Nobody gets in. Nobody gets lunch.'],

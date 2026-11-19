@@ -3,7 +3,7 @@
 import { H, L, P, atk, deck, heal, infuse, loot, mv, recover, shield, tp, use, xp } from '../dsl';
 
 export const SCHOLAR = deck('scholar', [
-  // ---- level 1 (hand 9, so one spare to leave at home)
+  // ---- level 1 (hand 9, so three spare to leave at home)
   [1, 23, 'Footnote', H([atk(2, { range: 3, type: 'magic' })]), H([mv(3)]), 'A small, pointed reference.'],
   [1, 42, 'Kindling Chapter', H([atk(2, { range: 3, type: 'fire' }), infuse('fire')]), H([mv(2)])],
   [1, 55, 'Citation Needed', H([atk(1, { range: 3, aoe: 'blast', type: 'magic', use: use('magic', { n: 1, text: '+1 Attack' }) })]), H([mv(3)])],
@@ -14,6 +14,8 @@ export const SCHOLAR = deck('scholar', [
   [1, 79, 'Thesis Defence', L([atk(4, { range: 4, type: 'magic', xp: 2, use: use('magic', { n: 2, text: '+2 Attack' }) })]), H([mv(3)])],
   [1, 60, 'Line of Inquiry', H([atk(2, { aoe: 'line3', type: 'magic' })]), H([mv(3)])],
   [1, 88, 'Bookmark', H([atk(2, { range: 2 })]), L([recover(2, 1)]), 'Never lose your place. Lose it twice, then find it.'],
+  [1, 29, 'Red Pen', H([atk(2, { range: 3, type: 'fire', cond: ['wound'] })]), H([mv(2), infuse('fire')]), 'See me after class. Bring bandages.'],
+  [1, 74, 'Do Not Disturb', H([atk(2, { range: 2, type: 'magic', push: 2 })]), H([mv(2), heal(2)])],
   // ---- level 2
   [2, 27, 'Cone of Shame', H([atk(2, { aoe: 'cone', type: 'fire', use: use('fire', { n: 1, text: '+1 Attack' }) })]), H([mv(3)])],
   [2, 71, 'Marginalia', H([atk(3, { range: 3, type: 'magic', cond: ['muddle'] })]), H([mv(2), shield(1), infuse('magic')])],

@@ -1,5 +1,6 @@
 // The boiler room: the Tenants' Union's hall between scenarios. Your union (characters), the campaign down
-// through the Depths, Riptide Delves, online co-op, Tasks that unlock classes, Gary's stall, and records.
+// through the Depths, Riptide Delves, online co-op, Tasks that unlock classes, Gary's stall, the Enhancer, the Boiler
+// (donations for a blessing and the union's prosperity), and records.
 import { save, saveNow, session, onSaveStatus } from '../app';
 import { CLASS_CARDS } from '../data/cards';
 import { CLASSES, CLASS_IDS, XP_LEVELS, MAX_LEVEL } from '../data/classes';
@@ -14,6 +15,12 @@ import {
   chooseLevelCard,
   choosePerk,
   deepest,
+  donate,
+  DONATION,
+  DONATION_BLESS,
+  PROSPERITY_STEP,
+  prosperity,
+  shopDepth,
   handFor,
   levelUpOptions,
   loadout,
@@ -35,7 +42,8 @@ import { api } from '../net/api';
 import { heroPortrait } from '../render/hero';
 import { cardEl } from './cardView';
 import { clear, h, modal, toast } from './dom';
-import { cardDef } from '../game/rules';
+import { cardDef, heroCard } from '../game/rules';
+import { enhancerTab } from './enhancer';
 import { clearResume, getResume } from '../resume';
 import { GAME_VERSION } from '../version';
 import { friendBadge, friendsModal, onFriendsChange } from './friends';
@@ -211,7 +219,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
       h(
         'div.col',
         { style: { gap: '3px' } },
-        h('div.row', { style: { gap: '6px' } }, h('span.name', c.name), pending ? h('span.badge.alert', 'Level up!') : null),
+        h('div.row', { style: { gap: '6px' } }, h('span.name', c.name), pending ? h('span.badge.alert', 'Level up!') : null, c.blessed ? h('span.badge.bless', { title: `${c.blessed} Bless cards in their modifier deck next scenario` }, '✧ Blessed') : null),
         h('div.small.dim', `${def.name} · level ${c.level} · ${maxHp(c)} HP · `, h('span.gold', `${c.gold} gold`)),
         h('div.bar', h('i', { style: { width: `${c.level >= MAX_LEVEL ? 100 : Math.round(((c.xp - prev) / Math.max(1, next - prev)) * 100)}%` } })),
         h(
@@ -264,6 +272,8 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     ['coop', 'Co-op'],
     ['tasks', 'Tasks'],
     ['shop', 'Gary’s Stall'],
+    ['enhance', 'Enhancer'],
+    ['boiler', 'The Boiler'],
     ['records', 'Records'],
   ];
   const doneTasks = p.tasksDone.length;
@@ -301,6 +311,8 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
   else if (tab === 'coop') body.appendChild(coopTab());
   else if (tab === 'tasks') body.appendChild(tasksTab());
   else if (tab === 'shop') body.appendChild(shopTab());
+  else if (tab === 'enhance') body.appendChild(enhancerTab(live, partyChars[0] ?? live[0], (id) => ((party = [id, ...party.filter((x) => x !== id)].slice(0, 4)), hallScreen(root, nav)), rerender));
+  else if (tab === 'boiler') body.appendChild(boilerTab());
   else body.appendChild(recordsTab());
 
   screen.appendChild(h('div.hall', head, h('div.panel', roster), h('div.panel.col', { style: { gap: '10px' } }, tabsEl, partyLine, body)));
@@ -430,7 +442,8 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
         (['head', 'body', 'legs', 'hand', 'small'] as Slot[]).map((sl) => h(`span${use[sl] >= caps[sl] ? '.accent' : '.dim'}`, `${SLOT_NAMES[sl]} ${use[sl]}/${caps[sl]}   `)),
       ),
     );
-    const depth = deepest(k);
+    const depth = shopDepth(k);
+    if (depth > deepest(k)) box.appendChild(h('div.small.good', `The union’s prosperity (${prosperity(k)}) has Gary stocking goods from as deep as Depth ${depth}.`));
     for (const it of Object.values(ITEMS)) {
       if (it.depth > depth) continue;
       const owned = buyer.items.includes(it.id);
@@ -450,12 +463,76 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
         ),
       );
     }
+    // what Gary is still waiting on: more stock arrives with each Depth (or prosperity) the union reaches
+    const later = Object.values(ITEMS).filter((it) => it.depth > depth);
+    if (later.length) {
+      const next = Math.min(...later.map((it) => it.depth));
+      const soon = later.filter((it) => it.depth === next);
+      box.appendChild(
+        h(
+          'div.depth',
+          { style: { opacity: '0.8' } },
+          h('div', h('b', 'On order: '), h('span.dim', `${later.length} more item${later.length === 1 ? '' : 's'} Gary can get once the union is deeper.`)),
+          h('div.small', `Arriving at Depth ${next}: `, soon.map((it) => h('span', { title: 'Gary won’t say what it does yet.' }, `${it.icon ?? '📦'} ${it.name}   `))),
+          h('div.tiny.dim', 'Reach the next Depth, or raise the union’s prosperity at the Boiler, and he’ll stock them.'),
+        ),
+      );
+    }
     box.appendChild(
       h(
         'div.small.dim',
         'Each hero equips one helmet, one chest and one pair of shoes, two hand items (one if they fight with a two-handed weapon), and potions/utility items up to half their level, rounded up. A new item goes on if a slot is free, otherwise into the bag: swap things around in the Inventory on the hero’s sheet. Spent items come back on a long rest; consumed ones after the scenario.',
       ),
     );
+    return box;
+  }
+
+  function boilerTab(): HTMLElement {
+    const box = h('div.col', { style: { gap: '10px' } });
+    const given = k.donated ?? 0;
+    const pros = prosperity(k);
+    const toNext = PROSPERITY_STEP - (given % PROSPERITY_STEP);
+    box.append(
+      h('div', h('b', 'The Boiler. '), h('span.dim', 'It keeps the whole building warm, and nobody has ever seen it switched off. Tenants feed it coins for luck. The coins come back out as something like grace.')),
+      h(
+        'div.depth',
+        h('div', 'Union prosperity ', h('b.accent', String(pros)), h('span.dim', ` · ${given} gold given in this campaign · ${toNext} more for the next level`)),
+        h('div.bar', h('i', { style: { width: `${Math.round(((given % PROSPERITY_STEP) / PROSPERITY_STEP) * 100)}%`, background: 'var(--glowen)' } })),
+        h('div.small.dim', `Every ${PROSPERITY_STEP} gold raises prosperity by one. Gary stocks goods from Depths down to the union’s prosperity, even ones it has not reached yet (now Depth ${shopDepth(k)}).`),
+      ),
+    );
+    if (!live.length) {
+      box.appendChild(h('div.dim', 'Recruit someone first.'));
+      return box;
+    }
+    for (const c of live) {
+      box.appendChild(
+        h(
+          'div.shopitem',
+          h(
+            'div.row',
+            { style: { gap: '10px' } },
+            heroPortrait(c.cls, 40),
+            h('div', h('b', c.name), h('span.small.dim', ` · ${c.gold} gold`), h('div.small', c.blessed ? h('span.good', `✧ Blessed: ${c.blessed} Bless cards go into their modifier deck next scenario.`) : h('span.dim', 'Not blessed.'))),
+          ),
+          h(
+            'button.tiny',
+            {
+              disabled: !!c.blessed || c.gold < DONATION,
+              title: c.blessed ? 'One blessing at a time: it is used up by the next scenario.' : '',
+              onclick: () => {
+                const err = donate(k, c);
+                if (err) toast(err);
+                else toast(`${c.name} feeds the Boiler ${DONATION} gold. It hums. ${DONATION_BLESS} Bless for the next scenario.`);
+                rerender();
+              },
+            },
+            `Donate ${DONATION}g`,
+          ),
+        ),
+      );
+    }
+    box.appendChild(h('div.small.dim', `Donate ${DONATION} gold to put ${DONATION_BLESS} Bless cards (×2, removed once drawn) into that hero’s attack modifier deck for their next scenario, won or lost. One blessing at a time.`));
     return box;
   }
 
@@ -608,7 +685,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
       );
       const row = h('div.row.wrap', { style: { alignItems: 'flex-start' } });
       for (const id of c.cards) {
-        const el = cardEl(cardDef(id), { small: true });
+        const el = cardEl(heroCard(c, id), { small: true });
         el.classList.add('pick');
         if (!chosen.has(id)) el.classList.add('dimmed');
         el.addEventListener('click', () => {

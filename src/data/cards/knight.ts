@@ -2,7 +2,7 @@
 import { H, L, P, atk, bless, deck, heal, infuse, loot, mv, ret, shield, use, xp } from '../dsl';
 
 export const KNIGHT = deck('knight', [
-  // ---- level 1 (hand 10, so one spare to leave at home)
+  // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 15, 'Shield Bash', H([atk(3, { push: 1 })]), H([mv(3)]), 'The shield is mostly for hitting. The rest is for hiding.'],
   [1, 72, 'Hold the Stairs', H([shield(2), ret(1)]), H([mv(2), shield(1, { range: 1 })])],
   [1, 30, 'Longsword Sweep', H([atk(2, { aoe: 'cleave' })]), H([mv(3), loot(1)])],
@@ -14,6 +14,8 @@ export const KNIGHT = deck('knight', [
   [1, 35, 'Taunting Shout', H([atk(2, { range: 2, cond: ['muddle'] })]), H([mv(2), shield(1)])],
   [1, 66, 'Sworn Protector', H([atk(2), shield(1, { range: 1 })]), L([xp(1)], P('retaliate', 1, 6, 'Retaliate 1 the next six times you are attacked'))],
   [1, 20, 'Riposte', H([ret(2), atk(1)]), H([mv(3)])],
+  [1, 38, 'Overhand Cut', H([atk(3, { use: use('holy', { n: 1, pierce: 1, text: '+1 Attack, Pierce 1' }) })]), H([mv(3)]), 'From above, where the gods can see it.'],
+  [1, 81, 'Stand Between', H([shield(2, { range: 1 }), ret(1)]), H([mv(2), infuse('holy')])],
   // ---- level 2
   [2, 40, 'Iron Lungs', H([atk(4, { use: use('holy', { cond: ['stun'], text: 'Stun' }) })]), H([mv(2), shield(2)])],
   [2, 70, 'Rally the Union', H([bless(2, 3, 1)]), H([heal(3, { range: 2 })]), 'A Knight’s speech: short, loud, about stairs.'],

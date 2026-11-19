@@ -8,11 +8,11 @@ import { DEFEAT_QUIPS, DEFEAT_TITLES } from '../data/story';
 import { chartLine } from '../draw/elements';
 import { hexDist, key, los, unitAt } from '../game/grid';
 import type { Match } from '../game/match';
-import { aoeTiles, attackOptions, cardDef, heroPrompt, moveOptions, nameOf, objectiveText, pushOptions } from '../game/rules';
+import { aoeTiles, attackOptions, cardDef, heroCard, heroPrompt, moveOptions, nameOf, objectiveText, pushOptions } from '../game/rules';
 import type { CombatState, Elem, HeroUnit, Step, Unit } from '../game/types';
 import { ELEMS } from '../game/types';
 import { Board } from '../render/board';
-import { abilityEl, cardEl, condName } from './cardView';
+import { abilityEl, cardEl, condName, stepText } from './cardView';
 import { clear, h, modal, toast } from './dom';
 import { describeTile } from './tileInfo';
 
@@ -315,13 +315,13 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   }
 
   // ---------------------------------------------------------------- hand / prompts
-  function pileButton(label: string, cards: string[]): HTMLElement {
+  function pileButton(hero: HeroUnit, label: string, cards: string[]): HTMLElement {
     return h(
       'button.tiny',
       {
         onclick: () => {
           if (!cards.length) return;
-          modal(h('div.col', h('h3', label), h('div.row.wrap', cards.map((c) => cardEl(cardDef(c), { small: true })))));
+          modal(h('div.col', h('h3', label), h('div.row.wrap', cards.map((c) => cardEl(heroCard(hero, c), { small: true })))));
         },
       },
       `${label} (${cards.length})`,
@@ -396,7 +396,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     const prompt = h('div.prompt');
     const row = h('div.handrow');
     handbar.append(prompt, row);
-    const piles = h('span.row', { style: { gap: '4px' } }, pileButton('Discard', hero.discard), pileButton('Lost', hero.lost), hero.active.length ? pileButton('Active', hero.active.map((a) => a.card)) : null);
+    const piles = h('span.row', { style: { gap: '4px' } }, pileButton(hero, 'Discard', hero.discard), pileButton(hero, 'Lost', hero.lost), hero.active.length ? pileButton(hero, 'Active', hero.active.map((a) => a.card)) : null);
 
     if (hero.exhausted) {
       prompt.append(h('span.what', hero.escaped ? `${hero.name} escaped.` : `${hero.name} is exhausted.`), h('span.dim', 'The union fights on without them.'));
@@ -410,7 +410,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           h('button', { onclick: () => send({ t: 'unready', uid: hero.uid }) }, 'Change'),
           waitingText(s),
         );
-        for (const c of hero.picked) row.appendChild(cardEl(cardDef(c), { small: true }));
+        for (const c of hero.picked) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
         return;
       }
       const canRest = hero.discard.length >= 2;
@@ -450,10 +450,10 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           ),
           h('span.pile', `HP ${hero.hp}/${hero.maxHp}`),
         );
-        const el = cardEl(cardDef(d.card), { small: true });
+        const el = cardEl(heroCard(hero, d.card), { small: true });
         el.classList.add('picked');
         row.appendChild(el);
-        for (const c of hero.discard) if (c !== d.card) row.appendChild(cardEl(cardDef(c), { small: true }));
+        for (const c of hero.discard) if (c !== d.card) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
         return;
       }
       if (hero.hand.length < 2) {
@@ -464,7 +464,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           piles,
           h('span.pile', `HP ${hero.hp}/${hero.maxHp}`),
         );
-        for (const c of hero.hand) row.appendChild(cardEl(cardDef(c), { small: true }));
+        for (const c of hero.hand) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
         return;
       }
       localPick = localPick.filter((c) => hero.hand.includes(c));
@@ -477,7 +477,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         h('span.pile', `HP ${hero.hp}/${hero.maxHp}`),
       );
       for (const c of hero.hand) {
-        const el = cardEl(cardDef(c), { small: true });
+        const el = cardEl(heroCard(hero, c), { small: true });
         el.classList.add('pick');
         const idx = localPick.indexOf(c);
         if (idx >= 0) {
@@ -514,7 +514,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           row.appendChild(label(actor.name));
           if (actor.longRest) row.appendChild(h('div.panel.small', { style: { alignSelf: 'center' } }, `${actor.name} is taking a long rest.`));
           for (const c of actor.picked) {
-            const el = cardEl(cardDef(c), { small: true });
+            const el = cardEl(heroCard(actor, c), { small: true });
             const t = s.heroTurn;
             if (t?.uid === actor.uid) {
               const halves = el.querySelectorAll('.half');
@@ -538,7 +538,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       if (row.childElementCount) row.appendChild(h('div', { style: { width: '2px', alignSelf: 'stretch', background: 'var(--line)', margin: '0 6px' } }));
       row.appendChild(label(hero.longRest ? `${hero.name}: resting` : `${hero.name}`));
       for (const c of hero.picked) {
-        const el = cardEl(cardDef(c), { small: true });
+        const el = cardEl(heroCard(hero, c), { small: true });
         el.style.opacity = '0.75';
         row.appendChild(el);
       }
@@ -547,7 +547,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     if (p.kind === 'rest') {
       prompt.append(h('span.what', `Long rest: choose a discarded card to lose. ${hero.name} heals 2 and refreshes items.`));
       for (const c of hero.discard) {
-        const el = cardEl(cardDef(c), { small: true });
+        const el = cardEl(heroCard(hero, c), { small: true });
         el.classList.add('pick');
         el.addEventListener('click', () => send({ t: 'restLose', uid: hero.uid, card: c }));
         row.appendChild(el);
@@ -561,6 +561,15 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         h('span.what', used ? `Now play the ${used.half === 'top' ? 'bottom' : 'top'} half of the other card.` : 'Your turn: play the top half of one card, then the bottom half of the other.'),
         h('span.dim', 'Or use a half as a basic Attack 2 / Move 2.'),
         piles,
+      );
+    } else if (p.kind === 'element' && p.step && p.els?.length) {
+      // the step can spend an element: spend it now or keep it for a later card
+      const u = (p.step as { use?: { text?: string } }).use;
+      const name = (e: string): string => e[0]!.toUpperCase() + e.slice(1);
+      prompt.append(
+        h('span.what', h('span', { html: stepText(p.step) }), ` · spend ${p.els.length > 1 ? 'an element' : name(p.els[0]!)} for ${u?.text ?? 'a bonus'}?`),
+        ...p.els.map((e) => h(`button.primary.el-btn.el-${e}`, { onclick: () => send({ t: 'useEl', uid: hero.uid, el: e }) }, `Spend ${name(e)}${s.elements[e] === 1 ? ' (waning)' : ''}`)),
+        h('button', { onclick: () => send({ t: 'useEl', uid: hero.uid, el: null }) }, 'Keep it'),
       );
     } else if (s.pushQ?.length) {
       // a push with more than one way to go: the player decides
@@ -576,7 +585,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     // the half just chosen can be taken back until it is acted on
     if (s.undo) prompt.appendChild(h('button', { title: 'Take back the card half you just chose (Ctrl+Z). Only until you move, attack, skip or use an item.', onclick: () => send({ t: 'undo', uid: hero.uid }) }, '↶ Undo card'));
     for (const c of hero.picked) {
-      const el = cardEl(cardDef(c), { small: true });
+      const el = cardEl(heroCard(hero, c), { small: true });
       const usedHalf = t.used.find((u) => u.card === c);
       const halves = el.querySelectorAll('.half');
       const topEl = halves[0] as HTMLElement;
@@ -631,7 +640,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     const drawDiscards = (): void => {
       clear(discardRow);
       for (const c of hero.discard) {
-        const el = cardEl(cardDef(c), { small: true });
+        const el = cardEl(heroCard(hero, c), { small: true });
         el.classList.add('pick');
         if (pair.includes(c)) {
           el.classList.add('picked');
@@ -655,7 +664,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       h(
         'div.row.wrap',
         choices.map((c) => {
-          const el = cardEl(cardDef(c), { small: true });
+          const el = cardEl(heroCard(hero, c), { small: true });
           el.classList.add('pick');
           el.addEventListener('click', () => answer(c));
           return el;

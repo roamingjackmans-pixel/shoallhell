@@ -45,7 +45,7 @@ Negative conditions for enemies: `poison` (+1 damage taken from attacks), `wound
 
 ## Deck shape and numbers
 
-- Level 1: **hand size + 1** cards (the class `hand` in `src/data/classes.ts`). Levels 2, 3, 4, 5: **two cards each**
+- Level 1: **hand size + 3** cards (the class `hand` in `src/data/classes.ts`). Levels 2, 3, 4, 5: **two cards each**
   (the hero picks one per level-up).
 - Initiatives spread across 05–95; fast classes skew low. No two cards in a class share an initiative.
 - Normal top halves: Attack 2–3 (level 1), 3–4 (level 3+), often with one rider (push, a condition, a target, range).
@@ -56,3 +56,19 @@ Negative conditions for enemies: `poison` (+1 damage taken from attacks), `wound
 - Use the class's element (`elem` in classes.ts): some cards infuse it, others spend it with `use(...)`.
 - Card names are short and in Dungeon Joe’s voice: grim world, cheeky text. Give a few cards a one-line flavour.
 - Card names must be unique within the class (the id is built from the name).
+
+## Enhancements (the Enhancer)
+
+Heroes buy permanent stickers for their own cards in the hall (`src/game/enhance.ts`, stored per character as
+`enh[cardId] = [{ half, step, kind }]`, where `step` is the index into the card's own `steps`). `enhancedCard()` applies
+them, and the engine plays a hero's cards through `heroCard(h, id)`, so cards themselves never change.
+
+- Slots per ability line: Attack 2; Move, Heal, Shield, Retaliate, Loot 1; anything else 0.
+- Stickers: +1 (the line's number), +1 Range (ranged attacks and heals), +1 Target (single-target attacks), +1 Pierce,
+  +1 Push / +1 Pull (only on attacks that already push/pull), Jump (moves), Poison/Wound/Muddle/Immobilize/Disarm
+  (attacks), and an element (any line with a slot: adds an infuse step right after it). One of each per line, one element.
+- Prices: +1 Attack 50, +1 Move/Heal 30, +1 Shield/Retaliate 100, +1 Loot 60, Range/Pierce/Push/Pull 30, Target 50,
+  Jump 50, Poison/Wound 75, Muddle 50, Immobilize 100, Disarm 150, element 100. ×2 on multi-target attacks (not for +1
+  Target), +25 per card level above 1, +75 per sticker already on the line.
+
+When designing cards, remember a line with a slot may end up one stronger than printed.

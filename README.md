@@ -25,7 +25,8 @@ four players, with email + password accounts.
   a hex to ping it for everyone in the game.
 - **Dungeon Joe rules carried over.** Red attacks ignore Shield; Blue attacks hit every hero in their area. The
   weakness chart (Magic › Holy › Void › Fire › Magic) gives +1/−1 damage. Fire, Magic, Void and Holy are elements
-  heroes infuse and spend for bonuses.
+  heroes infuse and spend for bonuses. Spending is your choice: when a card could spend an element that is up,
+  you are asked to spend it (pick which, for "any") or keep it for a later card.
 - **Monsters.** All 80 Dungeon Joe enemies, with their own art, names and jokes, each with an ability deck built
   from its Dungeon Joe attacks; elites; 8 Dungeon Joe bosses plus the new final boss, The Executor.
 - **Maps.** Every scenario is procedurally generated: a chain of large, irregular hex rooms behind doors in the Depth's zone style
@@ -45,13 +46,25 @@ four players, with email + password accounts.
 - **Inventory.** Dungeon Joe style paper doll on each hero's sheet: one helmet, one chest, one pair of shoes, two hand
   items (one for classes with a two-handed weapon) and potions/utility items up to half the level, rounded up. Everything
   else waits in the bag; click to equip or swap. Only equipped items come into a scenario.
+- **Gary's stall.** 46 items (healing, shields, retaliate, next-attack bonuses, elements, blessings, max HP,
+  hazard-proof boots...). Gary stocks new ones as the campaign reaches each Depth or as prosperity rises, and shows
+  what is on order next. Chests can hold anything he would stock there. Item effects are data in `src/data/items.ts`.
+- **Enhancer.** Gloomhaven enhancements: a hero spends their own gold to paint permanent stickers onto their cards'
+  ability lines (+1 Attack/Move/Heal/Shield/Retaliate/Loot, +1 Range, +1 Target, Pierce, Push, Pull, Jump, a
+  condition, or an element to infuse). Attack lines hold two stickers, Move/Heal/Shield/Retaliate/Loot one. Gloomhaven
+  prices: doubled on multi-target abilities, +25 per card level above 1, +75 per sticker already on the line.
+  Enhanced lines glow on the card (✦).
+- **The Boiler.** Donate 10 gold for 2 Bless cards in that hero's modifier deck next scenario. Every 100 gold given in
+  a campaign raises the union's prosperity, and Gary stocks goods from Depths down to the prosperity level.
+- **End of the round.** Meeting a scenario's goal does not end it on the spot: the round plays out (everyone after
+  the last kill still takes their turn) and the scenario is won at the end of it.
 - **Pushing.** When a hero pushes an enemy and it could go more than one way, you pick the hex (step by step).
 - **Version** is shown on the sign-in screen and in the hall header.
 - **Classes.** 14 classes: Dungeon Joe's ten (Knight, Brute, Duelist, Scholar, Pyre Priest, Battlemage, Hunter,
   Zealot, Berserker, Nobody) and four new ones (Shoal Diver, Notary, Glowsmith, Lamplighter). Four start unlocked;
-  the rest unlock through **Tasks** as you play. Each class has ~19 cards: its level-1 hand plus two choices at each
-  level up to 5, and a perk list that tunes its attack modifier deck.
-- **Progress.** XP, levels, new cards, perks, gold, Gary's stall (items), Tasks, records — saved to your account.
+  the rest unlock through **Tasks** as you play. Each class has ~21 cards: its level-1 hand plus three spare level-1
+  cards to build with, two choices at each level up to 5, and a perk list that tunes its attack modifier deck.
+- **Progress.** XP, levels, new cards, perks, gold, Gary's stall (items), enhancements, blessings, Tasks, records — saved to your account.
 
 ## Run it locally
 

@@ -3,7 +3,7 @@
 import { H, L, P, atk, bless, buff, deck, heal, infuse, loot, mv, shield, summon, use, xp } from '../dsl';
 
 export const CLERIC = deck('cleric', [
-  // ---- level 1 (hand 11, so one spare to leave at home)
+  // ---- level 1 (hand 11, so three spare to leave at home)
   [1, 47, 'Last Rites', H([atk(2, { range: 2, type: 'fire' }), infuse('fire')]), H([heal(3, { range: 2 })]), 'Short service. Very warm.'],
   [1, 62, 'Warm Hands', H([heal(3, { range: 1 })]), H([mv(3)])],
   [1, 36, 'Censer Swing', H([atk(3, { type: 'fire' })]), H([mv(3), heal(1)])],
@@ -16,6 +16,8 @@ export const CLERIC = deck('cleric', [
   [1, 19, 'Brand of Faith', H([atk(2, { type: 'fire', cond: ['wound'] })]), H([mv(4)])],
   [1, 89, 'Night Vigil', H([shield(1, { range: 2, all: true })]), H([heal(2), infuse('holy')])],
   [1, 52, 'Burning Hymn', H([atk(1, { aoe: 'ring', type: 'fire', use: use('fire', { n: 1, text: '+1 Attack' }) })]), H([mv(2), heal(1, { range: 1 })])],
+  [1, 23, 'Fire and Brimstone', H([atk(2, { aoe: 'line2', type: 'fire', use: use('fire', { n: 1, text: '+1 Attack' }) })]), H([mv(3)]), 'The brimstone is extra. Everyone pays extra.'],
+  [1, 84, 'Sanctuary', H([shield(2, { range: 2 }), infuse('holy')]), H([mv(3), heal(1, { range: 2 })])],
   // ---- level 2
   [2, 32, 'Ash Wednesday', H([atk(3, { range: 2, type: 'fire', use: use('holy', { n: 1, text: '+1 Attack' }) })]), H([mv(3), infuse('fire')])],
   [2, 77, 'Benediction', H([bless(1, 3), heal(2, { range: 3 })]), H([mv(3)])],

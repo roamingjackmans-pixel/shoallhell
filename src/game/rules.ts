@@ -5,10 +5,11 @@
 // in initiative order -> end of round (shields/retaliate clear, elements wane, decks reshuffle).
 // Hero turn: the top half of one picked card and the bottom half of the other (or basic Attack 2 / Move 2).
 import { card as cardDef } from '../data/cards';
-import { ITEMS } from '../data/items';
+import { ITEMS, wears } from '../data/items';
 import { monsterDef, monsterStat, SUMMONS, summonFor, ZONE_MONSTERS } from '../data/monsters';
 import type { ScenarioDef } from '../data/story';
 import { affinityMult } from '../draw/elements';
+import { enhancedCard, type EnhMap } from './enhance';
 import { generate } from './procgen';
 import { alliesOf, dirIndex, enemiesOf, freeNeighbours, hexCenter, hexDist, hexesWithin, inRange, isHeroSide, key, landing, los, neighbors, pathTo, reach, roomAt, setTile, stepDir, tile, unitAt, unkey } from './grid';
 import { apply as applyMods, baseDeck, drawMods, heroDeck, modLabel, type DeckHolder } from './mods';
@@ -22,6 +23,7 @@ import type {
   Elem,
   Fx,
   HeroUnit,
+  Card,
   Mod,
   MonsterAbility,
   MonsterUnit,
@@ -44,6 +46,10 @@ export interface HeroSetup {
   cards: string[];
   items: string[];
   perks: string[];
+  /** enhancement stickers on their cards (card id → stickers) */
+  enh?: EnhMap;
+  /** Bless cards from a donation at the Boiler, shuffled into their modifier deck */
+  bless?: number;
 }
 
 export type Intent =
@@ -61,7 +67,9 @@ export type Intent =
   | { t: 'negate'; uid: string; choice: string }
   | { t: 'restLose'; uid: string; card: string }
   | { t: 'undo'; uid: string }
-  | { t: 'push'; uid: string; x: number; y: number };
+  | { t: 'push'; uid: string; x: number; y: number }
+  /** answer to a card step that could spend an element: which one to spend, or null to keep them */
+  | { t: 'useEl'; uid: string; el: Elem | null };
 
 const EXPIRING: Cond[] = ['stun', 'immobilize', 'disarm', 'muddle', 'strengthen', 'invisible'];
 export const COIN_VALUE = [2, 2, 3, 3, 4, 4, 5, 6];
@@ -182,7 +190,8 @@ export function createCombat(sc: ScenarioDef, setups: HeroSetup[], level: number
       exhausted: false,
       xp: 0,
       gold: 0,
-      mods: heroDeck(h.perks),
+      mods: [...heroDeck(h.perks), ...Array.from({ length: h.bless ?? 0 }, (): Mod => ({ v: 0, temp: 'bless' }))],
+      enh: h.enh && Object.keys(h.enh).length ? h.enh : undefined,
       modDiscard: [],
       items: h.items.map((id) => ({ id, state: 'ready' as const })),
       next: {},
@@ -194,11 +203,13 @@ export function createCombat(sc: ScenarioDef, setups: HeroSetup[], level: number
   });
   revealRoom(s, 0);
   log(s, `${sc.name}. ${objectiveText(s)}`, 'info');
+  for (const u of s.units) if (u.kind === 'hero' && u.mods.some((m) => m.temp === 'bless')) log(s, `${u.name} carries the Boiler’s blessing (${u.mods.filter((m) => m.temp === 'bless').length} Bless).`, 'hero');
   log(s, 'Pick two cards: the first one you pick sets your initiative.', 'info');
   return s;
 }
 
 export function objectiveText(s: CombatState): string {
+  if (s.goalMet && s.phase === 'turns') return 'Goal met! Everyone finishes their turn, then the scenario is won.';
   const o = s.scenario.objective;
   switch (o.kind) {
     case 'clear':
@@ -364,6 +375,12 @@ function infuseEl(s: CombatState, el: Elem, by?: HeroUnit): void {
   fx(s, { kind: 'infuse', el, ...(by ? { uid: by.uid } : {}) });
 }
 
+/** The elements a step's element cost could be paid with right now (strongest first). */
+export function spendable(s: CombatState, el: Elem | 'any'): Elem[] {
+  const up = (el === 'any' ? [...ELEMS] : [el]).filter((e) => s.elements[e] > 0);
+  return up.sort((a, b) => s.elements[b] - s.elements[a]);
+}
+
 /** Spend an element if it is up (strong or waning); 'any' takes the strongest. */
 function consume(s: CombatState, el: Elem | 'any'): Elem | null {
   if (el === 'any') {
@@ -461,11 +478,19 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
     adv++;
     delete a.next.adv;
   }
+  if (a.kind === 'hero' && a.next.pierce) {
+    pierce += a.next.pierce;
+    delete a.next.pierce;
+  }
+  if (a.kind === 'hero' && a.next.push) {
+    push += a.next.push;
+    delete a.next.push;
+  }
   const deck = deckOf(s, a);
   const drawn = drawMods(s, deck, Math.sign(adv), base);
   let used = drawn.used;
   // Bucket Helm: monster x2 counts as +0
-  if (a.kind === 'monster' && t.kind === 'hero' && t.items.some((i) => i.id === 'iron_helm')) used = used.map((m) => (m.mult === 'x2' ? { v: 0 } : m));
+  if (a.kind === 'monster' && t.kind === 'hero' && wears(t.items, 'noCrit')) used = used.map((m) => (m.mult === 'x2' ? { v: 0 } : m));
   let val = applyMods(base, used);
   const missed = used.some((m) => m.mult === 'null' || m.temp === 'curse');
   for (const m of used) {
@@ -624,7 +649,7 @@ function shove(s: CombatState, t: Unit, src: Unit, n: number, dir: 1 | -1): void
 function enterTile(s: CombatState, u: Unit, jump: boolean): void {
   const c = tile(s.map, u.x, u.y);
   const flying = u.kind === 'monster' && monsterDef(u.monster).flying;
-  const wellies = u.kind === 'hero' && u.items.some((i) => i.id === 'wellies');
+  const wellies = u.kind === 'hero' && wears(u.items, 'hazardProof');
   if (c === '~' && !jump && !flying && !wellies) {
     log(s, `${nameOf(u)} wades through the hazard.`, 'dmg');
     damage(s, u, 1);
@@ -688,6 +713,11 @@ function startRound(s: CombatState): void {
 }
 
 function endRound(s: CombatState): void {
+  // the goal was met during this round: now that everyone has had their turn, the scenario is won
+  if (s.goalMet) {
+    win(s, s.goalMet);
+    return;
+  }
   for (const u of s.units) {
     u.shield = 0;
     u.retaliate = 0;
@@ -764,11 +794,18 @@ export function checkEnd(s: CombatState): void {
   const escaped = hs.filter((h) => h.escaped);
   const o = s.scenario.objective;
   if (o.kind === 'escape' && escaped.length > 0 && alive.length === 0) return win(s, 'The union got through.');
-  if (alive.length === 0) return lose(s, 'Every hero is exhausted.');
+  if (alive.length === 0) return s.goalMet ? win(s, s.goalMet) : lose(s, 'Every hero is exhausted.');
+  if (s.goalMet) return;
   const mons = monsters(s);
-  if (o.kind === 'clear' && mons.length === 0 && s.map.rooms.every((r) => r.revealed)) return win(s, 'Every room is clear.');
-  if (o.kind === 'boss' && s.units.some((u) => u.kind === 'monster' && u.monster === o.boss && u.dead)) return win(s, `${monsterDef(o.boss).name} is defeated!`);
-  if (o.kind === 'destroy' && s.destroyed >= o.count) return win(s, 'Every target is destroyed.');
+  let met: string | null = null;
+  if (o.kind === 'clear' && mons.length === 0 && s.map.rooms.every((r) => r.revealed)) met = 'Every room is clear.';
+  else if (o.kind === 'boss' && s.units.some((u) => u.kind === 'monster' && u.monster === o.boss && u.dead)) met = `${monsterDef(o.boss).name} is defeated!`;
+  else if (o.kind === 'destroy' && s.destroyed >= o.count) met = 'Every target is destroyed.';
+  if (!met) return;
+  // Gloomhaven: the scenario ends at the end of the round the goal is met in, so everyone still finishes their turn
+  if (s.phase !== 'turns') return win(s, met);
+  s.goalMet = met;
+  log(s, `${met} Goal met: the round plays out, then the scenario ends.`, 'good');
 }
 
 /** Move to the next slot in the initiative order (or end the round). */
@@ -1208,13 +1245,24 @@ function prepStep(s: CombatState, h: HeroUnit): void {
   const cur = s.heroTurn!.cur!;
   const st = cur.steps[cur.step];
   if (!st || cur.stepReady) return;
+  const u = (st as { use?: Consume }).use;
+  // the step could spend an element: the player decides (once per step)
+  if (u && cur.elChoice === undefined) {
+    const els = spendable(s, u.el);
+    if (els.length) {
+      cur.elAsk = els;
+      return;
+    }
+  }
+  const choice = cur.elChoice;
+  delete cur.elAsk;
+  delete cur.elChoice;
   cur.stepReady = true;
   cur.targetsHit = [];
   cur.anyHit = false;
   (cur as { bonus?: Consume }).bonus = undefined;
-  const u = (st as { use?: Consume }).use;
-  if (u) {
-    const el = consume(s, u.el);
+  if (u && choice) {
+    const el = consume(s, choice);
     if (el) {
       (cur as { bonus?: Consume }).bonus = u;
       log(s, `${h.name} spends ${el}: ${u.text ?? 'bonus'}.`, 'hero');
@@ -1249,6 +1297,7 @@ function runSteps(s: CombatState, h: HeroUnit): void {
       return;
     }
     prepStep(s, h);
+    if (cur.elAsk) return;
     if (h.exhausted) return;
     if (stepNeedsInput(s, h, st)) return;
     autoStep(s, h, st);
@@ -1688,6 +1737,16 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
     }
     return null;
   }
+  if (i.t === 'useEl') {
+    const cur = t.cur;
+    if (!cur?.elAsk) return 'Nothing to spend an element on.';
+    if (i.el !== null && !cur.elAsk.includes(i.el)) return 'That element is not available.';
+    cur.elChoice = i.el;
+    if (i.el === null) log(s, `${h.name} keeps the element${cur.elAsk.length > 1 ? 's' : ''} for later.`, 'hero');
+    runSteps(s, h);
+    return null;
+  }
+  if (t.cur?.elAsk) return 'First choose whether to spend the element.';
   // anything else done on the board is an action: the chosen half can no longer be taken back
   if (i.t !== 'half') s.undo = null;
   switch (i.t) {
@@ -1697,7 +1756,7 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
       if (!h.picked.includes(i.card)) return 'Play one of your two picked cards.';
       if (t.used.some((u) => u.card === i.card)) return 'You already used that card.';
       if (t.used.some((u) => u.half === i.half)) return i.half === 'top' ? 'You already played a top half.' : 'You already played a bottom half.';
-      const steps: Step[] = i.basic ? [i.half === 'top' ? { t: 'attack', n: 2, range: 0 } : { t: 'move', n: 2 }] : cardDef(i.card)[i.half].steps;
+      const steps: Step[] = i.basic ? [i.half === 'top' ? { t: 'attack', n: 2, range: 0 } : { t: 'move', n: 2 }] : heroCard(h, i.card)[i.half].steps;
       // remember the board as it is now, so this choice can be taken back until the hero acts on it
       const snap = snapshot(s);
       t.cur = { card: i.card, half: i.half, basic: i.basic, step: 0, steps, targetsHit: [], anyHit: false, stepReady: false };
@@ -1859,61 +1918,37 @@ function useItem(s: CombatState, h: HeroUnit, id: string): string | null {
   const myTurn = s.phase === 'turns' && s.heroTurn?.uid === h.uid;
   if (!myTurn) return 'Use items on your turn.';
   const st = curStep(s);
-  switch (id) {
-    case 'thermos':
-    case 'potion_heal':
-      healUnit(s, h, 3, h);
-      break;
-    case 'potion_stamina': {
-      const back = h.discard.splice(Math.max(0, h.discard.length - 2), 2);
-      h.hand.push(...back);
-      break;
-    }
-    case 'boots':
-      if (st?.t !== 'move' || !s.heroTurn?.cur) return 'Use it while moving.';
-      s.heroTurn.cur.movesLeft = (s.heroTurn.cur.movesLeft ?? 0) + 2;
-      break;
-    case 'flippers':
-      if (st?.t !== 'move' || !s.heroTurn?.cur) return 'Use it while moving.';
-      s.heroTurn.cur.jump = true;
-      break;
-    case 'leather':
-      h.shield += 1;
-      break;
-    case 'plate':
-      h.shield += 2;
-      break;
-    case 'crowbar':
-      h.next.atk = (h.next.atk ?? 0) + 1;
-      break;
-    case 'poison_dagger':
-      h.next.cond = [...(h.next.cond ?? []), 'poison'];
-      break;
-    case 'whistle':
-      h.next.cond = [...(h.next.cond ?? []), 'stun'];
-      break;
-    case 'spoon':
-      h.next.adv = true;
-      break;
-    case 'lantern':
-      infuseEl(s, 'holy', h);
-      break;
-    case 'ember_jar':
-      infuseEl(s, 'fire', h);
-      break;
-    case 'eel_battery':
-      infuseEl(s, 'magic', h);
-      break;
-    case 'ink_pot':
-      infuseEl(s, 'void', h);
-      break;
-    case 'union_card':
-      giveCond(s, h, 'strengthen');
-      giveCond(s, h, 'regenerate');
-      break;
-    default:
-      return 'Nothing happens.';
+  const e = def.fx;
+  const cur = s.heroTurn?.cur;
+  if (def.when === 'move' && (st?.t !== 'move' || !cur)) return 'Use it while moving.';
+  if (e.move && cur) cur.movesLeft = (cur.movesLeft ?? 0) + e.move;
+  if (e.jump && cur) cur.jump = true;
+  if (e.cure) h.conds = h.conds.filter((c) => !NEGATIVE.includes(c));
+  if (e.heal) healUnit(s, h, e.heal, h);
+  if (e.recover) {
+    const back = h.discard.splice(Math.max(0, h.discard.length - e.recover), e.recover);
+    h.hand.push(...back);
   }
+  if (e.shield) h.shield += e.shield;
+  if (e.retaliate) {
+    h.retaliate += e.retaliate;
+    h.retRange = Math.max(h.retRange, 1);
+  }
+  for (const el of e.infuse ?? []) infuseEl(s, el, h);
+  for (const c of e.self ?? []) giveCond(s, h, c);
+  if (e.bless) addBless(s, h, h, e.bless);
+  if (e.refresh) for (const o of h.items) if (o !== it && o.state === 'spent') o.state = 'ready';
+  if (e.loot) {
+    const got = s.pickups.filter((p) => !p.opened && hexDist(p.x, p.y, h.x, h.y) <= e.loot! && los(s.map, h.x, h.y, p.x, p.y));
+    for (const p of got) takePickup(s, h, p);
+    if (!got.length) log(s, `${h.name} finds nothing to loot.`, 'info');
+  }
+  // bonuses for the next attack
+  if (e.atk) h.next.atk = (h.next.atk ?? 0) + e.atk;
+  if (e.pierce) h.next.pierce = (h.next.pierce ?? 0) + e.pierce;
+  if (e.push) h.next.push = (h.next.push ?? 0) + e.push;
+  if (e.cond?.length) h.next.cond = [...(h.next.cond ?? []), ...e.cond];
+  if (e.adv) h.next.adv = true;
   it.state = def.use === 'consumed' ? 'consumed' : 'spent';
   s.undo = null;
   log(s, `${h.name} uses ${def.name}.`, 'hero');
@@ -1928,14 +1963,20 @@ function useItem(s: CombatState, h: HeroUnit, id: string): string | null {
 }
 
 /** What the acting hero needs to do now, for the UI. */
-export function heroPrompt(s: CombatState): { uid: string; step?: Step; kind: 'choose' | 'step' | 'rest' } | null {
+export function heroPrompt(s: CombatState): { uid: string; step?: Step; kind: 'choose' | 'step' | 'rest' | 'element'; els?: Elem[] } | null {
   const t = s.heroTurn;
   if (!t || !t.started || s.phase !== 'turns') return null;
   const h = hero(s, t.uid);
   if (!h) return null;
   if (h.longRest) return { uid: h.uid, kind: 'rest' };
   if (!t.cur) return { uid: h.uid, kind: 'choose' };
+  if (t.cur.elAsk) return { uid: h.uid, kind: 'element', step: t.cur.steps[t.cur.step]!, els: t.cur.elAsk };
   return { uid: h.uid, kind: 'step', step: t.cur.steps[t.cur.step]! };
+}
+
+/** A card as this hero has it: with their enhancement stickers applied. */
+export function heroCard(h: Pick<HeroUnit, 'enh'>, id: string): Card {
+  return enhancedCard(cardDef(id), h.enh?.[id]);
 }
 
 export { mustRest, canPlay, hasCond, cardDef };
