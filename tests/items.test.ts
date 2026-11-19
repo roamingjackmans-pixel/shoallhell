@@ -49,6 +49,26 @@ describe('items', () => {
     expect(act(t2.s, 'p', { t: 'item', uid: t2.h.uid, item: 'tide_boots' })).toMatch(/moving/);
   });
 
+  it('can be used on a long rest turn', () => {
+    const setup: HeroSetup = { owner: 'p', charId: 'k', name: 'K', cls: 'knight', level: 1, maxHp: 10, cards: ['knight_charge_the_line', 'knight_tabard_of_faith', 'knight_shield_bash', 'knight_riposte'], items: ['plate', 'potion_heal', 'boots'], perks: [] };
+    const s = createCombat(SCENARIOS[0]!, [setup], 1, 3);
+    const h = s.units.find((u): u is HeroUnit => u.kind === 'hero')!;
+    h.discard.push(h.hand.pop()!, h.hand.pop()!);
+    h.hp = 3;
+    expect(act(s, 'p', { t: 'longRest', uid: h.uid })).toBeNull();
+    for (let i = 0; i < 80 && !(s.heroTurn?.uid === h.uid && s.heroTurn.started); i++) tick(s);
+    expect(s.heroTurn?.uid).toBe(h.uid);
+    expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'plate' })).toBeNull();
+    expect(h.shield).toBe(2);
+    expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'potion_heal' })).toBeNull();
+    expect(h.hp).toBe(6);
+    expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'boots' })).toMatch(/moving/);
+    // finishing the rest refreshes spent items (the consumed potion stays used)
+    expect(act(s, 'p', { t: 'restLose', uid: h.uid, card: h.discard[0]! })).toBeNull();
+    expect(h.items.find((i) => i.id === 'plate')!.state).toBe('ready');
+    expect(h.items.find((i) => i.id === 'potion_heal')!.state).toBe('consumed');
+  });
+
   it('worn items raise max HP; Gary stocks by Depth and prosperity', () => {
     const k = makeCharacter('K', 'knight');
     const base = maxHp(k);

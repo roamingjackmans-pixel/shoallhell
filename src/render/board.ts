@@ -1107,6 +1107,30 @@ export class Board {
       ctx.fillText(c[0]!.toUpperCase(), cx, cy + 3);
       ctx.font = 'bold 11px Segoe UI, system-ui, sans-serif';
     });
+    // long resting: a blue "RESTING" tag and drifting Zzz over the hero, so nobody misses it
+    if (u.kind === 'hero' && u.longRest && !u.exhausted) {
+      const ty = y - 66;
+      ctx.font = 'bold 13px Segoe UI, system-ui, sans-serif';
+      const w = ctx.measureText('RESTING').width + 20;
+      ctx.fillStyle = 'rgba(28, 40, 86, 0.92)';
+      ctx.strokeStyle = '#8fb4ff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.roundRect(x - w / 2, ty - 11, w, 21, 10);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#dfe8ff';
+      ctx.fillText('RESTING', x, ty + 4);
+      for (let i = 0; i < 3; i++) {
+        const k = (now * 0.6 + i / 3) % 1;
+        ctx.globalAlpha = Math.sin(k * Math.PI);
+        ctx.fillStyle = '#b8ccff';
+        ctx.font = `bold ${10 + i * 3}px Segoe UI, system-ui, sans-serif`;
+        ctx.fillText('z', x + 14 + k * 14 + i * 4, ty - 12 - k * 18);
+      }
+      ctx.globalAlpha = 1;
+      ctx.font = 'bold 11px Segoe UI, system-ui, sans-serif';
+    }
   }
 
   private drawShots(ctx: CanvasRenderingContext2D, now: number): void {

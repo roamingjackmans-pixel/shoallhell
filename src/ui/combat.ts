@@ -192,13 +192,16 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     if (s.phase === 'select') {
       track.appendChild(h('div.slot', h('div.ini', '…'), h('div', h('div', 'Choosing cards'), h('div.tiny.dim', 'Initiative order appears when everyone is ready'))));
       for (const hu of s.units.filter((u): u is HeroUnit => u.kind === 'hero' && !u.exhausted))
-        track.appendChild(h('div.slot.hero', h('div.ini', hu.ready ? '✔' : '…'), h('div.nm', `${hu.name}${hu.ready ? (hu.longRest ? ' (long rest)' : ' — ready') : ''}`)));
+        track.appendChild(h('div.slot.hero', h('div.ini', hu.ready ? '✔' : '…'), h('div.nm', hu.ready && hu.longRest ? h('span.resting-tag', `🛏 ${hu.name}: long rest`) : `${hu.name}${hu.ready ? ' — ready' : ''}`)));
       return;
     }
     s.order.forEach((o, i) => {
       let label = '';
       let cls = 'hero';
-      if (o.kind === 'hero') label = (s.units.find((u) => u.uid === o.who) as HeroUnit | undefined)?.name ?? '?';
+      if (o.kind === 'hero') {
+        const hu = s.units.find((u) => u.uid === o.who) as HeroUnit | undefined;
+        label = hu ? (hu.longRest ? `🛏 ${hu.name} (long rest)` : hu.name) : '?';
+      }
       else if (o.kind === 'summon') {
         const u = s.units.find((x) => x.uid === o.who);
         label = u ? nameOf(u) : 'Summon';
@@ -337,8 +340,11 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       h('span.small.dim', 'Items:'),
       hero.items.map((it) => {
         const d = ITEMS[it.id]!;
-        const myTurn = s.phase === 'turns' && s.heroTurn?.uid === hero.uid;
-        return h('button.tiny', { disabled: d.use === 'passive' || it.state !== 'ready' || !myTurn, title: `${d.name}: ${d.text} (${d.use})`, onclick: () => send({ t: 'item', uid: hero.uid, item: it.id }) }, `${d.name}${it.state !== 'ready' ? ' ✓' : ''}`);
+        const myTurn = s.phase === 'turns' && s.heroTurn?.uid === hero.uid && !!s.heroTurn.started;
+        const cur = s.heroTurn?.cur;
+        const moving = !!cur && cur.steps[cur.step]?.t === 'move';
+        const notNow = d.when === 'move' && !moving;
+        return h('button.tiny', { disabled: d.use === 'passive' || it.state !== 'ready' || !myTurn || notNow, title: `${d.name}: ${d.text} (${d.use})${notNow ? ' · use it while moving' : ''}`, onclick: () => send({ t: 'item', uid: hero.uid, item: it.id }) }, `${d.name}${it.state !== 'ready' ? ' ✓' : ''}`);
       }),
       usable.length ? null : null,
     );
@@ -406,7 +412,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     if (s.phase === 'select') {
       if (hero.ready) {
         prompt.append(
-          h('span.what', hero.longRest ? `${hero.name} will take a long rest (initiative 99).` : `${hero.name} is ready: ${hero.picked.map((c) => cardDef(c).name).join(' + ')}.`),
+          hero.longRest ? restBanner(`${hero.name} is LONG RESTING this round`, 'No cards this round. Initiative 99, so they go last: then heal 2, refresh spent items, and choose one discarded card to lose. The rest come back to the hand.') : h('span.what', `${hero.name} is ready: ${hero.picked.map((c) => cardDef(c).name).join(' + ')}.`),
           h('button', { onclick: () => send({ t: 'unready', uid: hero.uid }) }, 'Change'),
           waitingText(s),
         );
@@ -506,13 +512,14 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       if (slot?.kind === 'hero') who = `${(s.units.find((u) => u.uid === slot.who) as HeroUnit)?.name ?? 'Someone'}'s turn.`;
       else if (slot?.kind === 'summon') who = 'A summon is acting…';
       prompt.append(h('span.what', who), piles);
+      if (hero.longRest) prompt.appendChild(restBanner(`${hero.name} is LONG RESTING this round`, 'No cards to play. At initiative 99 they heal 2, refresh items, and you choose a discarded card to lose.'));
       // what the one acting is using right now
       const label = (text: string): HTMLElement => h('div.small.dim', { style: { writingMode: 'vertical-rl', transform: 'rotate(180deg)', alignSelf: 'center' } }, text);
       if (slot?.kind === 'hero') {
         const actor = s.units.find((u) => u.uid === slot.who) as HeroUnit | undefined;
         if (actor && actor.uid !== hero.uid) {
           row.appendChild(label(actor.name));
-          if (actor.longRest) row.appendChild(h('div.panel.small', { style: { alignSelf: 'center' } }, `${actor.name} is taking a long rest.`));
+          if (actor.longRest) row.appendChild(restBanner(`${actor.name} is long resting`, 'Healing 2, refreshing items and losing one discarded card.'));
           for (const c of actor.picked) {
             const el = cardEl(heroCard(actor, c), { small: true });
             const t = s.heroTurn;
@@ -545,13 +552,16 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       return;
     }
     if (p.kind === 'rest') {
-      prompt.append(h('span.what', `Long rest: choose a discarded card to lose. ${hero.name} heals 2 and refreshes items.`));
+      prompt.append(restBanner(`${hero.name} is LONG RESTING`, `Choose one discarded card to lose for the rest of the scenario. Then ${hero.name} heals 2, refreshes spent items, and the other discards return to the hand.`));
       for (const c of hero.discard) {
         const el = cardEl(heroCard(hero, c), { small: true });
         el.classList.add('pick');
-        el.addEventListener('click', () => send({ t: 'restLose', uid: hero.uid, card: c }));
+        el.addEventListener('click', () => confirmRestLose(hero, c));
         row.appendChild(el);
       }
+      // items can be used on a long rest turn too (spent ones refresh when the rest finishes)
+      const it = itemRow(s, hero);
+      if (it) handbar.appendChild(it);
       return;
     }
     const t = s.heroTurn!;
@@ -616,6 +626,30 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     }
     const it = itemRow(s, hero);
     if (it) handbar.appendChild(it);
+  }
+
+  /** The unmissable "this hero is long resting" banner. */
+  function restBanner(title: string, sub: string): HTMLElement {
+    return h('div.rest-banner', h('span.rest-icon', '🛏'), h('div', h('div.rest-title', title), h('div.rest-sub', sub)));
+  }
+
+  /** Losing a card is permanent for the scenario: ask before sending it. */
+  function confirmRestLose(hero: HeroUnit, c: string): void {
+    const def = heroCard(hero, c);
+    const close = modal(
+      h(
+        'div.col',
+        { style: { alignItems: 'center', gap: '12px' } },
+        h('h2', { style: { margin: 0 } }, `Lose ${def.name}?`),
+        h('div.dim', { style: { maxWidth: '380px', textAlign: 'center' } }, 'It goes to the lost pile and stays there for the rest of the scenario. The other discarded cards come back to the hand.'),
+        cardEl(def, { small: true }),
+        h(
+          'div.row',
+          h('button.danger', { onclick: () => (close(), send({ t: 'restLose', uid: hero.uid, card: c })) }, `Lose ${def.name}`),
+          h('button', { onclick: () => close() }, 'Pick a different card'),
+        ),
+      ),
+    );
   }
 
   function waitingText(s: CombatState): HTMLElement {

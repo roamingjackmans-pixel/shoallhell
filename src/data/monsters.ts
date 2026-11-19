@@ -58,6 +58,9 @@ function elemOf(e: DjEnemy): DamageType {
   return total > 0 && n / total >= 0.5 ? best : 'physical';
 }
 
+/** Enemies whose Dungeon Joe red attacks keep their numbers here but do not ignore Shield (owner's call). */
+const SHIELD_STOPS_RED = new Set(['shambler']);
+
 function convert(e: DjEnemy): MonsterDef {
   const role = (e.role in ROLE_BASE ? e.role : 'fodder') as Exclude<Role, 'boss'>;
   const base: MonsterStat = { ...ROLE_BASE[role] };
@@ -79,7 +82,7 @@ function convert(e: DjEnemy): MonsterDef {
         init: clampInit(init0 + 12 + j),
         move: base.move ? (lunge ? 1 : 0) : null,
         atk: 1,
-        red: true,
+        ...(SHIELD_STOPS_RED.has(e.id) ? {} : { red: true }),
         ...(cond ? { cond } : {}),
         ...(/charge|ram|shield|anvil|crush|slam|swing|grab|reel/i.test(name) ? { push: 1 } : {}),
         ...(/reel|grab|pull|hug/i.test(name) ? { pull: 2, push: undefined } : {}),
