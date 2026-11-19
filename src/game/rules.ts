@@ -50,6 +50,8 @@ export type Intent =
   | { t: 'pick'; uid: string; cards: string[] }
   | { t: 'longRest'; uid: string }
   | { t: 'shortRest'; uid: string }
+  | { t: 'restKeep'; uid: string }
+  | { t: 'restReroll'; uid: string }
   | { t: 'unready'; uid: string }
   | { t: 'half'; uid: string; card: string; half: 'top' | 'bot'; basic: boolean }
   | { t: 'move'; uid: string; x: number; y: number }
@@ -57,7 +59,8 @@ export type Intent =
   | { t: 'skip'; uid: string }
   | { t: 'item'; uid: string; item: string }
   | { t: 'negate'; uid: string; choice: string }
-  | { t: 'restLose'; uid: string; card: string };
+  | { t: 'restLose'; uid: string; card: string }
+  | { t: 'undo'; uid: string };
 
 const EXPIRING: Cond[] = ['stun', 'immobilize', 'disarm', 'muddle', 'strengthen', 'invisible'];
 export const COIN_VALUE = [2, 2, 3, 3, 4, 4, 5, 6];
@@ -424,6 +427,8 @@ interface AttackOpts {
 
 /** Resolve one attack against one target. Returns the damage dealt (or queues a negate question). */
 function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
+  // modifier cards are about to be drawn: no taking the card back after this
+  s.undo = null;
   let adv = o.adv ?? 0;
   if (hasCond(a, 'strengthen')) adv++;
   if (hasCond(a, 'muddle')) adv--;
@@ -719,6 +724,7 @@ export function checkEnd(s: CombatState): void {
 
 /** Move to the next slot in the initiative order (or end the round). */
 function nextSlot(s: CombatState): void {
+  s.undo = null;
   const slot = s.order[s.turnIdx];
   if (slot) slot.done = true;
   s.turnIdx++;
@@ -1436,6 +1442,33 @@ function owns(s: CombatState, player: string, uid: string): HeroUnit | null {
 
 /** Apply a player's intent. Returns an error message, or null when it worked. */
 export function act(s: CombatState, player: string, i: Intent): string | null {
+  // a refused action changes nothing, so the chosen half stays undoable
+  const undo = s.undo ?? null;
+  const err = actInner(s, player, i);
+  if (err) s.undo = undo;
+  return err;
+}
+
+/** The whole state as JSON (minus the log, effects and any older snapshot). */
+function snapshot(s: CombatState): string {
+  return JSON.stringify({ ...s, undo: null, log: [], fx: [] });
+}
+
+/** Take back the card half the acting hero chose, if they have not acted on it yet. */
+function undoHalf(s: CombatState, h: HeroUnit): string | null {
+  if (!s.undo) return 'Nothing to take back: you have already acted on that card.';
+  const before = JSON.parse(s.undo) as CombatState;
+  const { log: keepLog, fx: keepFx, fxId } = s;
+  Object.assign(s, before);
+  s.log = keepLog;
+  s.fx = keepFx;
+  s.fxId = fxId;
+  s.undo = null;
+  log(s, `${h.name} takes that card back.`, 'hero');
+  return null;
+}
+
+function actInner(s: CombatState, player: string, i: Intent): string | null {
   if (s.phase === 'won' || s.phase === 'lost') return 'The scenario is over.';
   const h = owns(s, player, i.uid);
   if (!h) return 'That is not your hero.';
@@ -1443,6 +1476,7 @@ export function act(s: CombatState, player: string, i: Intent): string | null {
     case 'pick': {
       if (s.phase !== 'select') return 'Not now.';
       if (h.exhausted) return 'Exhausted.';
+      if (h.restDraw) return 'Finish your short rest first.';
       if (i.cards.length !== 2 || i.cards[0] === i.cards[1] || !i.cards.every((c) => h.hand.includes(c))) return 'Pick two different cards from your hand.';
       h.picked = [...i.cards];
       h.longRest = false;
@@ -1452,6 +1486,7 @@ export function act(s: CombatState, player: string, i: Intent): string | null {
     }
     case 'longRest': {
       if (s.phase !== 'select') return 'Not now.';
+      if (h.restDraw) return 'Finish your short rest first.';
       if (h.discard.length < 2) return 'You need at least two cards in your discard pile to long rest.';
       h.picked = [];
       h.longRest = true;
@@ -1469,15 +1504,43 @@ export function act(s: CombatState, player: string, i: Intent): string | null {
     case 'shortRest': {
       if (s.phase !== 'select') return 'You can short rest between rounds.';
       if (h.shortRested) return 'You already short rested this round.';
+      if (h.restDraw) return 'Finish your short rest first.';
       if (h.discard.length < 2) return 'You need at least two cards in your discard pile.';
-      const k = Math.floor(rand(s) * h.discard.length);
-      const lostCard = h.discard.splice(k, 1)[0]!;
-      h.lost.push(lostCard);
+      // a random discarded card is drawn to be lost; the hero may pay 1 HP once to lose a different one instead
+      const card = h.discard[Math.floor(rand(s) * h.discard.length)]!;
+      h.restDraw = { card };
+      h.ready = false;
+      h.picked = [];
+      h.longRest = false;
+      log(s, `${h.name} short rests: ${cardDef(card).name} will be lost (or pay 1 HP to lose a different card).`, 'hero');
+      return null;
+    }
+    case 'restKeep':
+    case 'restReroll': {
+      const d = h.restDraw;
+      if (!d) return 'You are not short resting.';
+      let lose = d.card;
+      if (i.t === 'restReroll') {
+        if (h.hp <= 1) return 'Not enough health to pay for it.';
+        const others = h.discard.filter((c) => c !== d.card);
+        if (!others.length) return 'There is no other card to lose.';
+        h.hp -= 1;
+        fx(s, { kind: 'dmg', uid: h.uid, text: '-1', color: '#ff5a4a' });
+        lose = others[Math.floor(rand(s) * others.length)]!;
+        log(s, `${h.name} pays 1 HP to keep ${cardDef(d.card).name}.`, 'hero');
+      }
+      h.discard = h.discard.filter((c) => c !== lose);
+      h.lost.push(lose);
       h.stats.lost++;
       h.hand.push(...h.discard);
       h.discard = [];
       h.shortRested = true;
-      log(s, `${h.name} takes a short rest and loses ${cardDef(lostCard).name}.`, 'hero');
+      h.restDraw = null;
+      log(s, `${h.name} finishes a short rest and loses ${cardDef(lose).name}.`, 'hero');
+      // too few cards left to play a turn: exhausted now, and the round may be ready to start without them
+      checkExhaustion(s);
+      checkEnd(s);
+      if (s.phase === 'select') maybeStart(s);
       return null;
     }
     case 'restLose': {
@@ -1500,11 +1563,14 @@ export function act(s: CombatState, player: string, i: Intent): string | null {
       const attacker = unit(s, p.fromUid);
       if (i.choice === 'take') {
         damage(s, h, p.dmg, attacker);
-      } else if (i.choice === 'discard2') {
-        if (h.discard.length < 2) return 'Not enough cards in the discard pile.';
-        for (let k = 0; k < 2; k++) h.lost.push(h.discard.pop()!);
+      } else if (i.choice.startsWith('discard:')) {
+        // two cards of the hero's choosing from the discard pile
+        const pair = i.choice.slice(8).split(',');
+        if (pair.length !== 2 || pair[0] === pair[1] || !pair.every((c) => h.discard.includes(c))) return 'Choose two different cards from your discard pile.';
+        h.discard = h.discard.filter((c) => !pair.includes(c));
+        h.lost.push(...pair);
         h.stats.lost += 2;
-        log(s, `${h.name} loses two discarded cards to avoid the damage.`, 'hero');
+        log(s, `${h.name} loses ${pair.map((c) => cardDef(c).name).join(' and ')} to avoid the damage.`, 'hero');
       } else {
         if (!h.hand.includes(i.choice) || h.picked.includes(i.choice)) return 'Pick a card from your hand (not one you picked this round).';
         h.hand = h.hand.filter((c) => c !== i.choice);
@@ -1526,6 +1592,9 @@ export function act(s: CombatState, player: string, i: Intent): string | null {
   if (s.phase !== 'turns' || !s.heroTurn || s.heroTurn.uid !== h.uid || !s.heroTurn.started) return 'It is not your turn.';
   if (s.pending) return 'Waiting for an answer.';
   const t = s.heroTurn;
+  if (i.t === 'undo') return undoHalf(s, h);
+  // anything else done on the board is an action: the chosen half can no longer be taken back
+  if (i.t !== 'half') s.undo = null;
   switch (i.t) {
     case 'half': {
       if (h.longRest) return 'You are resting this turn.';
@@ -1534,8 +1603,11 @@ export function act(s: CombatState, player: string, i: Intent): string | null {
       if (t.used.some((u) => u.card === i.card)) return 'You already used that card.';
       if (t.used.some((u) => u.half === i.half)) return i.half === 'top' ? 'You already played a top half.' : 'You already played a bottom half.';
       const steps: Step[] = i.basic ? [i.half === 'top' ? { t: 'attack', n: 2, range: 0 } : { t: 'move', n: 2 }] : cardDef(i.card)[i.half].steps;
+      // remember the board as it is now, so this choice can be taken back until the hero acts on it
+      const snap = snapshot(s);
       t.cur = { card: i.card, half: i.half, basic: i.basic, step: 0, steps, targetsHit: [], anyHit: false, stepReady: false };
       const c = cardDef(i.card);
+      s.undo = snap;
       log(s, `${h.name} plays ${i.basic ? (i.half === 'top' ? 'a basic Attack 2' : 'a basic Move 2') : `${c.name} (${i.half === 'top' ? 'top' : 'bottom'})`}.`, 'hero');
       runSteps(s, h);
       return null;
@@ -1739,6 +1811,7 @@ function useItem(s: CombatState, h: HeroUnit, id: string): string | null {
       return 'Nothing happens.';
   }
   it.state = def.use === 'consumed' ? 'consumed' : 'spent';
+  s.undo = null;
   log(s, `${h.name} uses ${def.name}.`, 'hero');
   fx(s, { kind: 'text', uid: h.uid, text: def.name, color: '#ffd24a' });
   if (s.heroTurn?.cur) {

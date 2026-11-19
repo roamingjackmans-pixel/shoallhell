@@ -274,6 +274,8 @@ export interface HeroUnit extends UnitBase {
   next: { atk?: number; cond?: Cond[]; adv?: boolean; move?: number; jump?: boolean };
   /** short rest already taken this round */
   shortRested: boolean;
+  /** a short rest in progress: the card it will lose, and whether the 1 HP reroll is still on offer */
+  restDraw?: { card: string } | null;
   ready: boolean;
   escaped?: boolean;
   stats: { dmg: number; kills: number; heals: number; infusions: number; rangedKills: number; elitesKilled: number; lost: number };
@@ -423,5 +425,11 @@ export interface CombatState {
   destroyed: number;
   /** monster turn progress within the current slot */
   monsterCursor: number;
+  /**
+   * The state just before the acting hero chose their latest card half (JSON, without log/fx), so they can take it
+   * back until they act on it. Cleared by any real action, any attack (modifier cards were drawn) and the end of the
+   * turn. Co-op guests receive '1' instead of the snapshot.
+   */
+  undo?: string | null;
   result?: { won: boolean; rounds: number; text: string };
 }

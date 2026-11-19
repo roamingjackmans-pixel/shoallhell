@@ -4,6 +4,7 @@ import { SCENARIOS } from '../src/data/story';
 import { hexDist, hexesWithin, key, los, neighbors, pixelToHex, hexCenter, reach, landing } from '../src/game/grid';
 import { aoeTiles, createCombat, type HeroSetup } from '../src/game/rules';
 import type { CombatState } from '../src/game/types';
+import { describeTile } from '../src/ui/tileInfo';
 
 function openField(): CombatState {
   const setup: HeroSetup = { owner: 'p', charId: 'c', name: 'K', cls: 'knight', level: 1, maxHp: 10, cards: ['knight_shield_bash', 'knight_riposte'], items: [], perks: [] };
@@ -59,6 +60,30 @@ describe('hex grid', () => {
     const row = s.map.tiles[10]!;
     s.map.tiles[10] = row.slice(0, 12) + '#' + row.slice(13);
     expect(los(s.map, 10, 10, 14, 10)).toBe(false);
+  });
+
+  it('describes special hexes and nothing for plain floor', () => {
+    const s = openField();
+    const put = (x: number, y: number, c: string): void => {
+      const row = s.map.tiles[y]!;
+      s.map.tiles[y] = row.slice(0, x) + c + row.slice(x + 1);
+    };
+    put(3, 3, 'o');
+    put(4, 3, '~');
+    put(5, 3, ',');
+    put(6, 3, 'T');
+    put(7, 3, 'D');
+    s.pickups = [{ x: 8, y: 3, kind: 'coin' }];
+    expect(describeTile(s, 2, 3)).toEqual([]);
+    expect(describeTile(s, 3, 3)[0]!.name).toBe('Obstacle');
+    expect(describeTile(s, 4, 3)[0]!.name).toMatch(/^Hazard/);
+    expect(describeTile(s, 5, 3)[0]!.name).toBe('Difficult ground');
+    expect(describeTile(s, 6, 3)[0]!.name).toBe('Trap');
+    expect(describeTile(s, 7, 3)[0]!.name).toBe('Closed door');
+    expect(describeTile(s, 8, 3)[0]!.name).toBe('Coins');
+    // hexes in a room that has not been opened show nothing
+    s.map.rooms[0]!.revealed = false;
+    expect(describeTile(s, 3, 3)).toEqual([]);
   });
 
   it('area shapes have the right sizes', () => {

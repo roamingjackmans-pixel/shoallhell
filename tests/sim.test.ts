@@ -27,7 +27,12 @@ function botStep(s: CombatState): boolean {
         if (act(s, 'p', { t: 'longRest', uid: h.uid })) throw new Error('long rest failed');
         continue;
       }
-      if (h.hand.length < 4 && h.discard.length >= 2 && !h.shortRested) act(s, 'p', { t: 'shortRest', uid: h.uid });
+      if (h.hand.length < 4 && h.discard.length >= 2 && !h.shortRested) {
+        if (act(s, 'p', { t: 'shortRest', uid: h.uid })) throw new Error('short rest failed');
+        // healthy heroes pay 1 HP to reroll the lost card, hurt ones accept it
+        if (act(s, 'p', { t: h.hp > 4 ? 'restReroll' : 'restKeep', uid: h.uid })) throw new Error('short rest finish failed');
+        if (h.hand.length < 2) continue;
+      }
       const err = act(s, 'p', { t: 'pick', uid: h.uid, cards: [h.hand[0]!, h.hand[1]!] });
       if (err) throw new Error(err);
     }

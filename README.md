@@ -12,13 +12,17 @@ four players, with email + password accounts.
 
 - **Cards, Gloomhaven-style.** Every round each hero picks two ability cards. The first one picked sets initiative.
   On your turn you play the **top half of one and the bottom half of the other** (any top can be a basic Attack 2,
-  any bottom a basic Move 2). Played cards are discarded; halves marked LOST are gone for the scenario.
-- **Rests.** *Short rest* any time between rounds: all discards come back except one random card, which is lost.
+  any bottom a basic Move 2). Chose the wrong half? **Undo** (Ctrl+Z) takes it back until you move, attack, skip
+  or use an item. Played cards are discarded; halves marked LOST are gone for the scenario.
+- **Rests.** *Short rest* any time between rounds (even with an empty hand): all discards come back except one
+  random card, which is lost; you may pay 1 HP once to keep that card and lose a different random one instead.
   *Long rest* (when you are out of cards, or whenever you like): it takes your turn, heals 2, refreshes items, and
   you choose which discarded card to lose. Run out entirely and you are exhausted. A hit that would knock you out
-  can be avoided by losing a card instead.
+  can be avoided by losing a card of your choice from your hand, or two of your choice from your discard pile.
 - **Hexes and drag and drop.** The board is a hex grid. On a move, drag your hero up to the number of hexes the card
   gives (blue hexes), or click one. Click red-ringed enemies to attack, green-ringed allies to heal or shield, aim area attacks by hovering.
+  Hover any hex to see what it is (obstacle, hazard, rubble, trap, door, loot) in the corner panel, and right-click
+  a hex to ping it for everyone in the game.
 - **Dungeon Joe rules carried over.** Red attacks ignore Shield; Blue attacks hit every hero in their area. The
   weakness chart (Magic › Holy › Void › Fire › Magic) gives +1/−1 damage. Fire, Magic, Void and Holy are elements
   heroes infuse and spend for bonuses.

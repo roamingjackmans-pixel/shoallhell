@@ -14,6 +14,7 @@ import { ELEMS } from '../game/types';
 import { Board } from '../render/board';
 import { abilityEl, cardEl, condName } from './cardView';
 import { clear, h, modal, toast } from './dom';
+import { describeTile } from './tileInfo';
 
 const EL_GLYPH: Record<Elem, string> = { fire: '🔥', magic: '✦', void: '◐', holy: '☀' };
 const EL_COLOR: Record<Elem, string> = { fire: 'var(--fire)', magic: 'var(--magic)', void: 'var(--void)', holy: 'var(--holy)' };
@@ -42,6 +43,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   let hoverMonsterType: string | null = null;
   let logLen = 0;
   let lastTurnUid: string | null = null;
+  let hoverTile: [number, number] | null = null;
 
   const me = match.me;
   const mine = (s: CombatState): HeroUnit[] => s.units.filter((u): u is HeroUnit => u.kind === 'hero' && u.owner === me);
@@ -85,8 +87,34 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         render(s);
       }
     },
-    onHover: (uid) => showInspect(match.state, uid),
+    onHover: (uid, x, y) => {
+      hoverTile = [x, y];
+      showInspect(match.state, uid);
+    },
+    onPing: (x, y) => match.ping(x, y),
   };
+
+  // Ctrl+Z takes back the card half you just chose (until you act on it)
+  const onUndoKey = (e: KeyboardEvent): void => {
+    if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== 'z') return;
+    const s = match.state;
+    const t = s.heroTurn;
+    if (!s.undo || !t || !isMine(s, t.uid)) return;
+    e.preventDefault();
+    send({ t: 'undo', uid: t.uid });
+  };
+  window.addEventListener('keydown', onUndoKey);
+
+  // pings: each player gets a colour, labelled with their hero's name
+  const PING_COLORS = ['#ffd24a', '#7cc4ff', '#ff7a9a', '#9dffcf'];
+  const offPing = match.onPing((p) => {
+    const s = match.state;
+    const owners = [...new Set(s.units.filter((u): u is HeroUnit => u.kind === 'hero').map((u) => u.owner))];
+    const i = Math.max(0, owners.indexOf(p.from));
+    const names = s.units.filter((u): u is HeroUnit => u.kind === 'hero' && u.owner === p.from).map((u) => u.name);
+    const label = p.from === me ? 'You' : names.length ? names.join(' & ') : 'Someone';
+    board.ping(p.x, p.y, PING_COLORS[i % PING_COLORS.length]!, label);
+  });
 
   function isMine(s: CombatState, uid: string): boolean {
     return mine(s).some((h) => h.uid === uid);
@@ -216,14 +244,24 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     logbox.scrollTop = logbox.scrollHeight;
   }
 
+  /** The hover panel sits right under the log, and never runs down behind the hand. */
+  function placeInspect(): void {
+    const logShown = logbox.offsetParent !== null;
+    const top = logShown ? logbox.offsetTop + logbox.offsetHeight + 8 : 64;
+    inspect.style.top = `${top}px`;
+    inspect.style.maxHeight = `${Math.max(120, screen.clientHeight - top - handbar.offsetHeight - 12)}px`;
+  }
+
   function showInspect(s: CombatState, uid: string | null): void {
     clear(inspect);
     const u = uid ? s.units.find((x) => x.uid === uid) : null;
-    if (!u && !hoverMonsterType) {
+    const tiles = !hoverMonsterType && hoverTile ? describeTile(s, hoverTile[0], hoverTile[1]) : [];
+    if (!u && !hoverMonsterType && !tiles.length) {
       inspect.style.display = 'none';
       return;
     }
     inspect.style.display = '';
+    placeInspect();
     if (!u && hoverMonsterType) {
       const d = monsterDef(hoverMonsterType);
       inspect.append(h('div', h('b', d.name), h('span.dim', ` · ${d.role}`)), h('div.small.dim', d.flavor));
@@ -233,8 +271,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       else inspect.appendChild(h('div.small.dim', 'Their ability card is revealed once everyone has picked.'));
       return;
     }
-    if (!u) return;
-    if (u.kind === 'monster') {
+    if (u && u.kind === 'monster') {
       const d = monsterDef(u.monster);
       const st = u.stat;
       inspect.append(
@@ -246,7 +283,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       );
       const ab = d.abilities[s.drawn[u.monster] ?? -1];
       if (ab && s.phase === 'turns') inspect.appendChild(abilityEl(u.monster, ab, st));
-    } else if (u.kind === 'hero') {
+    } else if (u && u.kind === 'hero') {
       const def = CLASSES[u.cls]!;
       inspect.append(
         h('div', h('b', u.name), h('span.dim', ` · ${def.name} level ${u.level}`)),
@@ -255,10 +292,14 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         u.active.length ? h('div.small.good', u.active.map((a) => `◆ ${a.persist.text}${a.persist.uses ? ` (${a.left} left)` : ''}`).join(' ')) : '',
         h('div.small.dim', `XP this scenario ${u.xp} · Gold ${u.gold}`),
       );
-    } else {
+    } else if (u) {
       const d = SUMMONS[u.summon];
       inspect.append(h('div', h('b', d?.name ?? 'Summon'), h('span.dim', ' · summon')), h('div', `HP ${u.hp}/${u.maxHp} · Move ${u.stat.move} · Attack ${u.stat.atk}${u.stat.range ? ` · Range ${u.stat.range}` : ''}`));
     }
+    // what the hex itself is: obstacle, hazard, rubble, trap, door, exit, loot
+    tiles.forEach((t, i) => {
+      inspect.appendChild(h(`div.tileinfo${u || i > 0 ? '.sep' : ''}`, h(`b.${t.kind === 'loot' ? 'gold' : 'accent'}`, t.name), h('div.small', t.text)));
+    });
   }
 
   // ---------------------------------------------------------------- hand / prompts
@@ -361,24 +402,65 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         return;
       }
       const canRest = hero.discard.length >= 2;
+      const shortRestBtn = (primary: boolean): HTMLElement =>
+        h(
+          `button${primary ? '.primary' : ''}`,
+          {
+            disabled: !canRest || hero.shortRested,
+            title: hero.shortRested
+              ? 'You already short rested this round.'
+              : 'Right now, for free: a random discarded card is lost and the rest come back to your hand. You may pay 1 HP once to lose a different random card instead.',
+            onclick: () => send({ t: 'shortRest', uid: hero.uid }),
+          },
+          'Short rest',
+        );
+      const longRestBtn = (primary: boolean): HTMLElement =>
+        h(
+          `button${primary ? '.primary' : ''}`,
+          { disabled: !canRest, title: 'Spend the whole round resting (initiative 99): heal 2, refresh spent items, and choose which discarded card to lose.', onclick: () => send({ t: 'longRest', uid: hero.uid }) },
+          'Long rest',
+        );
+      // a short rest in progress: accept the random loss, or pay 1 HP to lose a different random card instead
+      if (hero.restDraw) {
+        const d = hero.restDraw;
+        const others = hero.discard.filter((c) => c !== d.card).length;
+        prompt.append(
+          h('span.what', `Short rest: ${cardDef(d.card).name} will be lost.`),
+          h('button.primary', { onclick: () => send({ t: 'restKeep', uid: hero.uid }) }, `Lose ${cardDef(d.card).name}`),
+          h(
+            'button',
+            {
+              disabled: hero.hp <= 1 || others === 0,
+              title: hero.hp <= 1 ? 'You need more than 1 HP to pay for it.' : 'Keep this card: suffer 1 damage and a different random discarded card is lost instead.',
+              onclick: () => send({ t: 'restReroll', uid: hero.uid }),
+            },
+            'Pay 1 HP: lose a different random card',
+          ),
+          h('span.pile', `HP ${hero.hp}/${hero.maxHp}`),
+        );
+        const el = cardEl(cardDef(d.card), { small: true });
+        el.classList.add('picked');
+        row.appendChild(el);
+        for (const c of hero.discard) if (c !== d.card) row.appendChild(cardEl(cardDef(c), { small: true }));
+        return;
+      }
       if (hero.hand.length < 2) {
-        prompt.append(h('span.what', `${hero.name} is out of cards: long rest (heal 2, refresh items, lose one discarded card of your choice).`), h('button.primary', { onclick: () => send({ t: 'longRest', uid: hero.uid }) }, 'Long rest'), piles);
+        prompt.append(
+          h('span.what', `${hero.name} has run out of cards in hand: rest to get them back.`),
+          shortRestBtn(true),
+          longRestBtn(false),
+          piles,
+          h('span.pile', `HP ${hero.hp}/${hero.maxHp}`),
+        );
+        for (const c of hero.hand) row.appendChild(cardEl(cardDef(c), { small: true }));
         return;
       }
       localPick = localPick.filter((c) => hero.hand.includes(c));
       prompt.append(
         h('span.what', localPick.length === 0 ? `Pick two cards for ${hero.name}. The first sets initiative.` : localPick.length === 1 ? 'Pick one more card.' : 'Ready?'),
         h('button.primary', { disabled: localPick.length !== 2, onclick: () => (send({ t: 'pick', uid: hero.uid, cards: localPick }), (localPick = [])) }, localPick.length === 2 ? `Ready (initiative ${cardDef(localPick[0]!).init})` : 'Ready'),
-        h('button', { disabled: !canRest, title: 'Spend the whole round resting: heal 2, refresh spent items, and choose one discarded card to lose.', onclick: () => send({ t: 'longRest', uid: hero.uid }) }, 'Long rest'),
-        h(
-          'button',
-          {
-            disabled: !canRest || hero.shortRested,
-            title: 'Right now, for free: all discarded cards come back except one random card, which is lost.',
-            onclick: () => send({ t: 'shortRest', uid: hero.uid }),
-          },
-          'Short rest',
-        ),
+        longRestBtn(false),
+        shortRestBtn(false),
         piles,
         h('span.pile', `HP ${hero.hp}/${hero.maxHp}`),
       );
@@ -411,8 +493,43 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       let who = 'Monsters are acting…';
       if (slot?.kind === 'hero') who = `${(s.units.find((u) => u.uid === slot.who) as HeroUnit)?.name ?? 'Someone'}'s turn.`;
       else if (slot?.kind === 'summon') who = 'A summon is acting…';
-      prompt.append(h('span.what', who), h('span.dim', hero.longRest ? `${hero.name} is resting this round.` : `${hero.name} plays: ${hero.picked.map((c) => cardDef(c).name).join(' + ')}`), piles);
-      for (const c of hero.picked) row.appendChild(cardEl(cardDef(c), { small: true }));
+      prompt.append(h('span.what', who), piles);
+      // what the one acting is using right now
+      const label = (text: string): HTMLElement => h('div.small.dim', { style: { writingMode: 'vertical-rl', transform: 'rotate(180deg)', alignSelf: 'center' } }, text);
+      if (slot?.kind === 'hero') {
+        const actor = s.units.find((u) => u.uid === slot.who) as HeroUnit | undefined;
+        if (actor && actor.uid !== hero.uid) {
+          row.appendChild(label(actor.name));
+          if (actor.longRest) row.appendChild(h('div.panel.small', { style: { alignSelf: 'center' } }, `${actor.name} is taking a long rest.`));
+          for (const c of actor.picked) {
+            const el = cardEl(cardDef(c), { small: true });
+            const t = s.heroTurn;
+            if (t?.uid === actor.uid) {
+              const halves = el.querySelectorAll('.half');
+              const used = t.used.find((u) => u.card === c);
+              if (used) (halves[used.half === 'top' ? 0 : 1] as HTMLElement).classList.add('used');
+              if (t.cur?.card === c) (halves[t.cur.half === 'top' ? 0 : 1] as HTMLElement).classList.add('playing');
+            }
+            row.appendChild(el);
+          }
+        }
+      } else if (slot?.kind === 'monster') {
+        const d = monsterDef(slot.who);
+        const ab = d.abilities[s.drawn[slot.who] ?? -1];
+        const any = s.units.find((u) => u.kind === 'monster' && u.monster === slot.who && !u.dead) as Extract<Unit, { kind: 'monster' }> | undefined;
+        if (ab) {
+          row.appendChild(label(d.name));
+          row.appendChild(abilityEl(slot.who, ab, any?.stat ?? null));
+        }
+      }
+      // and your own picks for this round
+      if (row.childElementCount) row.appendChild(h('div', { style: { width: '2px', alignSelf: 'stretch', background: 'var(--line)', margin: '0 6px' } }));
+      row.appendChild(label(hero.longRest ? `${hero.name}: resting` : `${hero.name}`));
+      for (const c of hero.picked) {
+        const el = cardEl(cardDef(c), { small: true });
+        el.style.opacity = '0.75';
+        row.appendChild(el);
+      }
       return;
     }
     if (p.kind === 'rest') {
@@ -439,6 +556,8 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         h('button', { onclick: () => send({ t: 'skip', uid: hero.uid }) }, p.step.t === 'move' ? 'Done moving' : 'Skip'),
       );
     }
+    // the half just chosen can be taken back until it is acted on
+    if (s.undo) prompt.appendChild(h('button', { title: 'Take back the card half you just chose (Ctrl+Z). Only until you move, attack, skip or use an item.', onclick: () => send({ t: 'undo', uid: hero.uid }) }, '↶ Undo card'));
     for (const c of hero.picked) {
       const el = cardEl(cardDef(c), { small: true });
       const usedHalf = t.used.find((u) => u.card === c);
@@ -489,11 +608,33 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     if (negateClose) return;
     const hero = s.units.find((u) => u.uid === p.heroUid) as HeroUnit;
     const choices = hero.hand.filter((c) => !hero.picked.includes(c));
+    let pair: string[] = [];
+    const pairBtn = h('button', { disabled: true, onclick: () => answer(`discard:${pair.join(',')}`) }, 'Lose these two') as HTMLButtonElement;
+    const discardRow = h('div.row.wrap');
+    const drawDiscards = (): void => {
+      clear(discardRow);
+      for (const c of hero.discard) {
+        const el = cardEl(cardDef(c), { small: true });
+        el.classList.add('pick');
+        if (pair.includes(c)) {
+          el.classList.add('picked');
+          el.appendChild(h('div.pickno', String(pair.indexOf(c) + 1)));
+        }
+        el.addEventListener('click', () => {
+          pair = pair.includes(c) ? pair.filter((x) => x !== c) : [...pair, c].slice(-2);
+          pairBtn.disabled = pair.length !== 2;
+          drawDiscards();
+        });
+        discardRow.appendChild(el);
+      }
+    };
+    drawDiscards();
     const body = h(
       'div.col',
       h('h2', `${hero.name} is about to fall!`),
-      h('div', `${p.by} hits for ${p.dmg} — enough to exhaust ${hero.name}. Lose a card to take no damage?`),
-      h('div.small.dim', 'Lose one card from your hand, or two from your discard pile. Conditions from the hit still apply.'),
+      h('div', `${p.by} hits for ${p.dmg}, enough to exhaust ${hero.name}. Lose cards to take no damage?`),
+      h('div.small.dim', 'Lose one card of your choice from your hand, or two of your choice from your discard pile. Conditions from the hit still apply.'),
+      h('h3', choices.length ? 'From your hand: click one card to lose it' : 'No cards in hand you can lose'),
       h(
         'div.row.wrap',
         choices.map((c) => {
@@ -503,18 +644,23 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           return el;
         }),
       ),
-      h(
-        'div.row',
-        h('button', { disabled: hero.discard.length < 2, onclick: () => answer('discard2') }, 'Lose two discarded cards'),
-        h('button.danger', { onclick: () => answer('take') }, `Take ${p.dmg} damage`),
-      ),
+      hero.discard.length >= 2 ? h('h3', 'Or from your discard pile: pick two') : '',
+      hero.discard.length >= 2 ? discardRow : '',
+      h('div.row', hero.discard.length >= 2 ? pairBtn : '', h('button.danger', { onclick: () => answer('take') }, `Take ${p.dmg} damage`)),
     );
+    let answered = false;
     const answer = (choice: string): void => {
+      answered = true;
       negateClose?.();
       negateClose = null;
       send({ t: 'negate', uid: hero.uid, choice });
     };
-    negateClose = modal(body);
+    // clicking outside the dialog must not leave the question unanswered: it comes straight back
+    negateClose = modal(body, () => {
+      if (answered) return;
+      negateClose = null;
+      setTimeout(() => renderPending(match.state), 0);
+    });
   }
 
   function renderEnd(s: CombatState): void {
@@ -548,14 +694,14 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         h('h2', 'How a round works'),
         h('div', '1. Everyone secretly picks two cards. The first card’s number is your initiative (lower acts first).'),
         h('div', '2. Monsters reveal one ability card per type. Everyone acts in initiative order.'),
-        h('div', '3. On your turn, play the TOP half of one card and the BOTTOM half of the other, in either order. Any top can be a basic Attack 2, any bottom a basic Move 2.'),
+        h('div', '3. On your turn, play the TOP half of one card and the BOTTOM half of the other, in either order. Any top can be a basic Attack 2, any bottom a basic Move 2. Picked the wrong half? Undo (Ctrl+Z) takes it back until you move, attack, skip or use an item.'),
         h('div', '4. Played cards go to your discard pile. Halves marked LOST remove the card for the scenario.'),
         h('div', '5. Short rest (between rounds): everything comes back except one random card, which is lost. Long rest (takes your turn): heal 2, refresh items, lose one card of your choice.'),
         h('div', 'Run out of cards and you are exhausted. If a hit would knock you out, you may lose a card instead.'),
         h('h3', 'Dungeon Joe rules, Shoallhell style'),
         h('div', h('span.redtag', { style: { color: '#ff4a3a', fontWeight: '800' } }, 'RED'), ' attacks ignore Shield. ', h('span', { style: { color: '#8fd3ff', fontWeight: '800' } }, 'BLUE'), ' attacks hit every hero in their area.'),
         h('div', 'Weakness chart: Magic beats Holy, Holy beats Void, Void beats Fire, Fire beats Magic (+1 damage when strong, −1 when weak). Infused elements are strong this round and waning the next; cards can spend them for bonuses.'),
-        h('div.small.dim', 'Controls: drag your hero to move (or click a blue hex), click enemies to attack. Move the view by dragging empty ground or with WASD / arrow keys; zoom with the mouse wheel or + and −; F fits the map. Rooms stay dark and their monsters asleep until someone opens the door. Hover anything for details.'),
+        h('div.small.dim', 'Controls: drag your hero to move (or click a blue hex), click enemies to attack. Right-click a hex to ping it for everyone in the game. Move the view by dragging empty ground or with WASD / arrow keys; zoom with the mouse wheel or + and −; F fits the map. Rooms stay dark and their monsters asleep until someone opens the door. Hover anything for details.'),
       ),
     );
   }
@@ -575,6 +721,8 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     renderStrip(s);
     renderLog(s);
     renderHand(s);
+    // keep the hover panel in the corner just above the hand, however tall the hand is
+    placeInspect();
     renderPending(s);
     const pr = `${s.phase}:${s.round}`;
     if (pr !== lastPhaseRound) {
@@ -595,6 +743,8 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   match.start();
   return () => {
     off();
+    offPing();
+    window.removeEventListener('keydown', onUndoKey);
     board.destroy();
     negateClose?.();
   };

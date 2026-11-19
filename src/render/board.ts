@@ -59,6 +59,17 @@ interface Floater {
   t0: number;
 }
 
+/** A ping someone put on a hex: pulsing rings and their name, for about three seconds. */
+export interface Ping {
+  x: number;
+  y: number;
+  color: string;
+  label: string;
+  t0: number;
+}
+
+const PING_SECONDS = 3.2;
+
 interface Shot {
   fx: number;
   fy: number;
@@ -83,6 +94,8 @@ export interface BoardHandlers {
   onUnit?(uid: string): void;
   onDrop?(uid: string, x: number, y: number): void;
   onHover?(uid: string | null, x: number, y: number): void;
+  /** right-click on a hex */
+  onPing?(x: number, y: number): void;
 }
 
 function rngFrom(seed: number) {
@@ -119,13 +132,21 @@ export class Board {
   private hover: [number, number] = [-1, -1];
   private hoverUid: string | null = null;
   private drag: { uid: string; sx: number; sy: number; wx: number; wy: number; moved: boolean } | null = null;
-  private pan: { sx: number; sy: number; cx: number; cy: number; click: boolean } | null = null;
+  private pan: { sx: number; sy: number; cx: number; cy: number; click: boolean; button: number } | null = null;
+  private pings: Ping[] = [];
   private keys = new Set<string>();
   private t0 = performance.now();
   private raf = 0;
   private dpr = 1;
   private lastFrame = performance.now();
   focusUid: string | null = null;
+
+  /** Show a ping on a hex (from this player or anyone else in the game). */
+  ping(x: number, y: number, color: string, label: string): void {
+    // a new ping from the same person replaces their old one
+    this.pings = this.pings.filter((p) => p.label !== label);
+    this.pings.push({ x, y, color, label, t0: this.now() });
+  }
 
   constructor(parent: HTMLElement) {
     this.canvas = document.createElement('canvas');
@@ -322,7 +343,8 @@ export class Board {
   private onDown = (e: PointerEvent): void => {
     this.canvas.focus({ preventScroll: true });
     if (e.button === 1 || e.button === 2) {
-      this.pan = { sx: e.clientX, sy: e.clientY, cx: this.cam.x, cy: this.cam.y, click: false };
+      // middle-drag pans; right-drag pans too, but a still right-click pings the hex
+      this.pan = { sx: e.clientX, sy: e.clientY, cx: this.cam.x, cy: this.cam.y, click: e.button === 2, button: e.button };
       return;
     }
     const [x, y] = this.tileAtClient(e.clientX, e.clientY);
@@ -333,7 +355,7 @@ export class Board {
       return;
     }
     // left-drag on empty space pans; a still click is a click
-    this.pan = { sx: e.clientX, sy: e.clientY, cx: this.cam.x, cy: this.cam.y, click: true };
+    this.pan = { sx: e.clientX, sy: e.clientY, cx: this.cam.x, cy: this.cam.y, click: true, button: 0 };
   };
 
   private onMove = (e: PointerEvent): void => {
@@ -373,7 +395,13 @@ export class Board {
     }
     if (this.pan) {
       const click = this.pan.click;
+      const button = this.pan.button;
       this.pan = null;
+      if (click && button === 2 && this.overCanvas(e)) {
+        const [x, y] = this.tileAtClient(e.clientX, e.clientY);
+        if (x >= 0 && y >= 0 && x < (this.state?.map.w ?? 0) && y < (this.state?.map.h ?? 0)) this.handlers.onPing?.(x, y);
+        return;
+      }
       if (click && this.overCanvas(e)) {
         const [x, y] = this.tileAtClient(e.clientX, e.clientY);
         const u = this.unitAtTile(x, y);
@@ -457,6 +485,7 @@ export class Board {
     this.drawShots(ctx, now);
     this.drawFloaters(ctx, now);
     this.drawDrag(ctx, s, now);
+    this.drawPings(ctx, now);
   };
 
   private mapSize(s: CombatState): [number, number] {
@@ -1108,6 +1137,89 @@ export class Board {
       ctx.fillStyle = f.color;
       ctx.fillText(f.text, x, y);
       ctx.globalAlpha = 1;
+    }
+  }
+
+  private drawPings(ctx: CanvasRenderingContext2D, now: number): void {
+    this.pings = this.pings.filter((p) => now - p.t0 < PING_SECONDS);
+    if (!this.pings.length) return;
+    const W = this.canvas.width / this.dpr;
+    const H = this.canvas.height / this.dpr;
+    for (const p of this.pings) {
+      const age = now - p.t0;
+      const fade = Math.min(1, (PING_SECONDS - age) / 0.6);
+      const [cx, cy] = hexPx(p.x, p.y);
+      ctx.save();
+      ctx.globalAlpha = fade;
+      // the hex itself, outlined
+      hexPath(ctx, cx, cy, S - 2);
+      ctx.fillStyle = withAlpha(p.color, 0.18);
+      ctx.fill();
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 4;
+      ctx.stroke();
+      // three expanding rings
+      for (let i = 0; i < 3; i++) {
+        const k = ((age * 1.3 + i / 3) % 1);
+        ctx.globalAlpha = fade * (1 - k);
+        ctx.strokeStyle = p.color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, S * (0.6 + k * 1.6), S * (0.6 + k * 1.6) * 0.7, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      // a bobbing pin with the name
+      ctx.globalAlpha = fade;
+      const bob = Math.sin(age * 6) * 4;
+      const py = cy - S * 1.3 + bob;
+      glow(ctx, cx, py, 22, p.color, 0.6);
+      ctx.fillStyle = p.color;
+      ctx.strokeStyle = OUTLINE;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - S * 0.55 + bob);
+      ctx.lineTo(cx - 9, py + 4);
+      ctx.arc(cx, py, 10, Math.PI * 0.85, Math.PI * 0.15);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(cx, py, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.font = 'bold 13px Segoe UI, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = '#000';
+      ctx.strokeText(p.label, cx, py - 16);
+      ctx.fillStyle = p.color;
+      ctx.fillText(p.label, cx, py - 16);
+      ctx.restore();
+      // off screen: an arrow at the edge of the view pointing at it
+      const sx = W / 2 + (cx - this.cam.x) * this.cam.z;
+      const sy = H / 2 + (cy - this.cam.y) * this.cam.z;
+      const m = 34;
+      if (sx < m || sy < m || sx > W - m || sy > H - m) {
+        const ex = Math.max(m, Math.min(W - m, sx));
+        const ey = Math.max(m, Math.min(H - m, sy));
+        const a = Math.atan2(sy - H / 2, sx - W / 2);
+        ctx.save();
+        ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+        ctx.globalAlpha = fade * (0.7 + Math.sin(age * 8) * 0.3);
+        ctx.translate(ex, ey);
+        ctx.rotate(a);
+        ctx.fillStyle = p.color;
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(14, 0);
+        ctx.lineTo(-10, -11);
+        ctx.lineTo(-10, 11);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+        ctx.restore();
+      }
     }
   }
 

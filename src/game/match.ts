@@ -7,6 +7,13 @@ import type { CombatState } from './types';
 
 export type Role = 'solo' | 'host' | 'guest';
 
+/** A ping on a hex, shared with everyone in the game (it never touches the rules state). */
+export interface PingMsg {
+  x: number;
+  y: number;
+  from: string;
+}
+
 export class Match {
   state: CombatState;
   private listeners = new Set<(s: CombatState) => void>();
@@ -14,6 +21,8 @@ export class Match {
   private timer = 0;
   private destroyed = false;
   private offs: (() => void)[] = [];
+  private pingListeners = new Set<(p: PingMsg) => void>();
+  private lastPing = -Infinity;
   /** speed multiplier for monster turns (settings) */
   speed = 1;
 
@@ -33,13 +42,23 @@ export class Match {
             if (err) coop.toGuests({ type: 'error', to: m.from, error: err });
             this.changed();
           } else if (m.msg?.type === 'hello') this.broadcast();
+          else if (m.msg?.type === 'ping') {
+            const p = this.cleanPing((m.msg as { ping?: unknown }).ping, m.from);
+            if (p) {
+              this.showPing(p);
+              coop.toGuests({ type: 'ping', ping: p });
+            }
+          }
         }),
       );
     }
     if (role === 'guest' && coop) {
       this.offs.push(
-        coop.on('hostmsg', (m: { type: string; state?: CombatState; to?: string; error?: string }) => {
-          if (m.type === 'state' && m.state) {
+        coop.on('hostmsg', (m: { type: string; state?: CombatState; to?: string; error?: string; ping?: PingMsg }) => {
+          if (m.type === 'ping' && m.ping && m.ping.from !== this.me) {
+            const p = this.cleanPing(m.ping, m.ping.from);
+            if (p) this.showPing(p);
+          } else if (m.type === 'state' && m.state) {
             this.state = m.state;
             this.notify();
           }
@@ -47,6 +66,34 @@ export class Match {
       );
       coop.toHost({ type: 'hello' });
     }
+  }
+
+  onPing(fn: (p: PingMsg) => void): () => void {
+    this.pingListeners.add(fn);
+    return () => this.pingListeners.delete(fn);
+  }
+
+  /** Ping a hex for everyone (at most about three a second). */
+  ping(x: number, y: number): void {
+    const now = performance.now();
+    if (now - this.lastPing < 300) return;
+    this.lastPing = now;
+    const p: PingMsg = { x, y, from: this.me };
+    this.showPing(p);
+    if (this.role === 'host') this.coop?.toGuests({ type: 'ping', ping: p });
+    else if (this.role === 'guest') this.coop?.toHost({ type: 'ping', ping: p });
+  }
+
+  private showPing(p: PingMsg): void {
+    for (const f of this.pingListeners) f(p);
+  }
+
+  private cleanPing(raw: unknown, from: string): PingMsg | null {
+    const r = raw as { x?: unknown; y?: unknown } | null;
+    const x = Number(r?.x);
+    const y = Number(r?.y);
+    if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= this.state.map.w || y >= this.state.map.h) return null;
+    return { x, y, from };
   }
 
   onChange(fn: (s: CombatState) => void): () => void {
@@ -59,7 +106,10 @@ export class Match {
   }
 
   private broadcast(): void {
-    if (this.role === 'host' && this.coop) this.coop.toGuests({ type: 'state', state: this.state });
+    if (this.role !== 'host' || !this.coop) return;
+    // guests only need to know that an undo exists; the snapshot itself stays with the host
+    const st = this.state.undo ? { ...this.state, undo: '1' } : this.state;
+    this.coop.toGuests({ type: 'state', state: st });
   }
 
   private changed(): void {
@@ -108,5 +158,6 @@ export class Match {
     clearTimeout(this.timer);
     for (const o of this.offs) o();
     this.listeners.clear();
+    this.pingListeners.clear();
   }
 }
