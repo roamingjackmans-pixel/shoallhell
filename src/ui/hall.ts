@@ -17,6 +17,12 @@ import {
   handFor,
   levelUpOptions,
   loadout,
+  SLOT_NAMES,
+  slotCaps,
+  slotUse,
+  equipItem,
+  unequipItem,
+  type Slot,
   makeCharacter,
   makeDelve,
   maxHp,
@@ -33,6 +39,7 @@ import { cardDef } from '../game/rules';
 import { clearResume, getResume } from '../resume';
 import { GAME_VERSION } from '../version';
 import { friendBadge, friendsModal, onFriendsChange } from './friends';
+import { inventoryEl } from './inventory';
 
 export interface HallNav {
   play(sc: ScenarioDef, chars: Character[]): void;
@@ -48,6 +55,10 @@ export interface HallNav {
 
 let tab = 'campaign';
 let party: string[] = [];
+// one save-status listener for the hall, however many times it is drawn
+let saveListening = false;
+let lastSaveStatus = '';
+let currentSaveLabel: HTMLElement | null = null;
 
 /** The tenants picked for the party in the hall (what co-op brings by default). */
 export function partyIds(): string[] {
@@ -58,11 +69,20 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
   const s = session!;
   const p = s.profile;
   const k = camp(p);
+  // clicking through the menus re-draws the hall: keep the page where it was instead of jumping to the top
+  const prevScroll = (root.querySelector('.screen.hall-screen') as HTMLElement | null)?.scrollTop ?? 0;
   clear(root);
-  const screen = h('div.screen.bgwater');
+  const screen = h('div.screen.bgwater.hall-screen');
   root.appendChild(screen);
-  const saveLabel = h('span.small.dim', s.mode === 'offline' ? 'Offline: saved on this device' : '');
-  onSaveStatus((t) => (saveLabel.textContent = t));
+  const saveLabel = h('span.small.dim', s.mode === 'offline' ? 'Offline: saved on this device' : lastSaveStatus);
+  currentSaveLabel = saveLabel;
+  if (!saveListening) {
+    saveListening = true;
+    onSaveStatus((t) => {
+      lastSaveStatus = t;
+      if (currentSaveLabel) currentSaveLabel.textContent = t;
+    });
+  }
 
   const live = k.characters.filter((c) => !c.retired);
   party = party.filter((id) => live.some((c) => c.id === id));
@@ -284,6 +304,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
   else body.appendChild(recordsTab());
 
   screen.appendChild(h('div.hall', head, h('div.panel', roster), h('div.panel.col', { style: { gap: '10px' } }, tabsEl, partyLine, body)));
+  screen.scrollTop = prevScroll;
 
   // ---------------------------------------------------------------- campaign
   function campaignTab(): HTMLElement {
@@ -399,6 +420,16 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
       live.map((c) => h(`button.tiny${c.id === buyer.id ? '.on' : ''}`, { onclick: () => ((party = [c.id, ...party.filter((x) => x !== c.id)].slice(0, 4)), hallScreen(root, nav)) }, `${c.name} (${c.gold}g)`)),
     );
     box.appendChild(pickBuyer);
+    const caps = slotCaps(buyer);
+    const use = slotUse(buyer);
+    const worn = loadout(buyer);
+    box.appendChild(
+      h(
+        'div.small',
+        `${buyer.name}'s slots: `,
+        (['head', 'body', 'legs', 'hand', 'small'] as Slot[]).map((sl) => h(`span${use[sl] >= caps[sl] ? '.accent' : '.dim'}`, `${SLOT_NAMES[sl]} ${use[sl]}/${caps[sl]}   `)),
+      ),
+    );
     const depth = deepest(k);
     for (const it of Object.values(ITEMS)) {
       if (it.depth > depth) continue;
@@ -406,14 +437,25 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
       box.appendChild(
         h(
           'div.shopitem',
-          h('div', h('b', it.name), h('span.small.dim', ` · ${it.slot} · ${it.use}`), h('div.small', it.text)),
+          h(
+            'div',
+            h('b', `${it.icon ?? ''} ${it.name}`),
+            h('span.small.dim', ` · ${SLOT_NAMES[it.slot]} · ${it.use}`),
+            owned ? h('span.small.good', worn.includes(it.id) ? ' · equipped' : ' · in the bag') : '',
+            h('div.small', it.text),
+          ),
           owned
             ? h('button.tiny', { onclick: () => (sellItem(buyer, it.id), rerender()) }, `Sell (${Math.floor(it.cost / 2)}g)`)
             : h('button.tiny', { disabled: buyer.gold < it.cost, onclick: () => { const e = buyItem(buyer, it.id); if (e) toast(e); rerender(); } }, `Buy ${it.cost}g`),
         ),
       );
     }
-    box.appendChild(h('div.small.dim', `Heroes carry one head, body and legs item, two hand items and ${'small items (one per two levels)'}. Spent items come back on a long rest; consumed ones after the scenario.`));
+    box.appendChild(
+      h(
+        'div.small.dim',
+        'Each hero equips one helmet, one chest and one pair of shoes, two hand items (one if they fight with a two-handed weapon), and potions/utility items up to half their level, rounded up. A new item goes on if a slot is free, otherwise into the bag: swap things around in the Inventory on the hero’s sheet. Spent items come back on a long rest; consumed ones after the scenario.',
+      ),
+    );
     return box;
   }
 
@@ -545,6 +587,14 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
           ),
         );
       } else if (c.perks.length) content.appendChild(h('div.small', 'Perks: ', c.perks.map((i) => def.perks[i]?.[0]).join(' · ')));
+      // inventory: Dungeon Joe style paper doll and bag (only equipped items come into a scenario)
+      content.append(
+        h('h3', 'Inventory'),
+        inventoryEl(c, () => {
+          save();
+          draw();
+        }),
+      );
       // hand selection
       if (!c.hand.length) c.hand = handFor(c);
       c.hand = c.hand.filter((id) => c.cards.includes(id));
@@ -574,20 +624,6 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
         row.appendChild(el);
       }
       content.appendChild(row);
-      // items
-      const carried = loadout(c);
-      content.append(
-        h('h3', 'Items'),
-        c.items.length
-          ? h(
-              'div.col',
-              c.items.map((id) => {
-                const it = ITEMS[id]!;
-                return h('div.small', h('b', it.name), ` · ${it.slot} · ${it.text}`, carried.includes(id) ? h('span.good', ' (carried)') : h('span.dim', ' (no free slot)'));
-              }),
-            )
-          : h('div.small.dim', 'No items. Gary has a stall by the boiler.'),
-      );
     };
     const retire = (): void => {
       const conf = modal(

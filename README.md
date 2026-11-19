@@ -42,6 +42,9 @@ four players, with email + password accounts.
   for 3 minutes while they reconnect.
 - **Friends.** Every account has a 4-digit friend code. Add a friend by code (requests wait if they are offline),
   see who is online and who is in a lobby, invite them with one click, or join theirs.
+- **Inventory.** Dungeon Joe style paper doll on each hero's sheet: one helmet, one chest, one pair of shoes, two hand
+  items (one for classes with a two-handed weapon) and potions/utility items up to half the level, rounded up. Everything
+  else waits in the bag; click to equip or swap. Only equipped items come into a scenario.
 - **Pushing.** When a hero pushes an enemy and it could go more than one way, you pick the hex (step by step).
 - **Version** is shown on the sign-in screen and in the hall header.
 - **Classes.** 14 classes: Dungeon Joe's ten (Knight, Brute, Duelist, Scholar, Pyre Priest, Battlemage, Hunter,

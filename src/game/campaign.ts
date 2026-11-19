@@ -21,6 +21,8 @@ export interface Character {
   hand: string[];
   /** items owned */
   items: string[];
+  /** the owned items worn or carried into scenarios (within slotCaps) */
+  equipped?: string[];
   /** indices into the class perk list */
   perks: number[];
   /** level-ups waiting for a card pick */
@@ -150,6 +152,11 @@ export function upgradeProfile(raw: Profile): Profile {
       c.perks ??= [];
       c.pendingCards ??= [];
       c.pendingPerks ??= 0;
+      // older saves carried everything that fit: start them equipped the same way
+      if (!Array.isArray(c.equipped)) {
+        c.equipped = [];
+        for (const id of c.items) autoEquip(c, id);
+      }
     }
   }
   for (const id of base.classes) if (!out.classes.includes(id)) out.classes.push(id);
@@ -168,6 +175,7 @@ export function makeCharacter(name: string, cls: string): Character {
     cards: starterCards(cls),
     hand: [],
     items: [],
+    equipped: [],
     perks: [],
     pendingCards: [],
     pendingPerks: 0,
@@ -204,18 +212,84 @@ function cardLevel(id: string): number {
 }
 
 /** Items a character brings: one per slot (two hands, small slots by level). */
+export type Slot = 'head' | 'body' | 'legs' | 'hand' | 'small';
+export const SLOT_NAMES: Record<Slot, string> = { head: 'Helmet', body: 'Chest', legs: 'Shoes', hand: 'Hands', small: 'Potions & utility' };
+
+/**
+ * How many items of each kind a hero can carry: one helmet, one chest, one pair of shoes, two hand items (one if the
+ * class fights with a two-handed weapon), and potions/utility items up to half their level, rounded up.
+ */
+export function slotCaps(c: Character): Record<Slot, number> {
+  return { head: 1, body: 1, legs: 1, hand: CLASSES[c.cls]?.twoHanded ? 1 : 2, small: smallSlots(c.level) };
+}
+
+/** Items equipped per slot right now. */
+export function slotUse(c: Character): Record<Slot, number> {
+  const use: Record<Slot, number> = { head: 0, body: 0, legs: 0, hand: 0, small: 0 };
+  for (const id of loadout(c)) {
+    const it = ITEMS[id];
+    if (it) use[it.slot]++;
+  }
+  return use;
+}
+
+/** The items a hero brings into a scenario: what they equipped, within their slot limits. */
 export function loadout(c: Character): string[] {
   const out: string[] = [];
-  const count: Record<string, number> = {};
-  const cap: Record<string, number> = { head: 1, body: 1, legs: 1, hand: 2, small: smallSlots(c.level) };
-  for (const id of c.items) {
+  const count: Partial<Record<Slot, number>> = {};
+  const cap = slotCaps(c);
+  for (const id of c.equipped ?? []) {
     const it = ITEMS[id];
-    if (!it) continue;
-    if ((count[it.slot] ?? 0) >= cap[it.slot]!) continue;
+    if (!it || !c.items.includes(id) || out.includes(id)) continue;
+    if ((count[it.slot] ?? 0) >= cap[it.slot]) continue;
     count[it.slot] = (count[it.slot] ?? 0) + 1;
     out.push(id);
   }
   return out;
+}
+
+/** Equip an owned item if its slot has room. Returns an error message, or null. */
+export function equipItem(c: Character, id: string): string | null {
+  const it = ITEMS[id];
+  if (!it || !c.items.includes(id)) return 'You do not own that.';
+  c.equipped = loadout(c);
+  if (c.equipped.includes(id)) return null;
+  const cap = slotCaps(c)[it.slot];
+  if (slotUse(c)[it.slot] >= cap) {
+    if (it.slot === 'small') return `You can carry ${cap} potion/utility item${cap === 1 ? '' : 's'} at level ${c.level} (half your level, rounded up). Unequip one first.`;
+    if (it.slot === 'hand') return cap === 1 ? 'A two-handed weapon leaves one hand free. Unequip your hand item first.' : 'Both hands are full. Unequip a hand item first.';
+    return `You already wear ${SLOT_NAMES[it.slot].toLowerCase()}. Unequip it first.`;
+  }
+  c.equipped.push(id);
+  return null;
+}
+
+export function unequipItem(c: Character, id: string): void {
+  c.equipped = loadout(c).filter((x) => x !== id);
+}
+
+/**
+ * Equip from the bag like Dungeon Joe: into a free slot of its kind, or swapping out what is in that slot (`replace`
+ * names which equipped item to swap; the first one of that kind otherwise). Returns the item taken off, if any.
+ */
+export function equipSwap(c: Character, id: string, replace?: string): string | null {
+  const it = ITEMS[id];
+  if (!it || !c.items.includes(id)) return null;
+  c.equipped = loadout(c);
+  if (c.equipped.includes(id)) return null;
+  let off: string | null = null;
+  if (slotUse(c)[it.slot] >= slotCaps(c)[it.slot]) {
+    off = replace && ITEMS[replace]?.slot === it.slot && c.equipped.includes(replace) ? replace : c.equipped.find((x) => ITEMS[x]?.slot === it.slot) ?? null;
+    if (!off) return null;
+    c.equipped = c.equipped.filter((x) => x !== off);
+  }
+  c.equipped.push(id);
+  return off;
+}
+
+/** Put a newly gained item on if there is room (bought from Gary, found in a chest). */
+export function autoEquip(c: Character, id: string): void {
+  equipItem(c, id);
 }
 
 export function heroSetup(c: Character, owner: string): HeroSetup {
@@ -346,6 +420,7 @@ export function applyResult(p: Profile, s: CombatState, owner: string, sc: Scena
     c.level = after;
     const found = ((h as HeroUnit & { found?: string[] }).found ?? []).filter((id) => !c.items.includes(id));
     c.items.push(...found);
+    for (const id of found) autoEquip(c, id);
     out.heroes.push({ charId: c.id, name: c.name, xpGained, goldGained, levelUps: after - before, items: found });
     bump(p, 'kills', h.stats.kills);
     bump(p, 'heals', h.stats.heals);
@@ -419,6 +494,7 @@ export function buyItem(c: Character, id: string): string | null {
   if (c.gold < it.cost) return 'Not enough gold.';
   c.gold -= it.cost;
   c.items.push(id);
+  autoEquip(c, id);
   return null;
 }
 
@@ -426,6 +502,7 @@ export function sellItem(c: Character, id: string): string | null {
   const it = ITEMS[id];
   if (!it || !c.items.includes(id)) return 'Not owned.';
   c.items = c.items.filter((x) => x !== id);
+  c.equipped = (c.equipped ?? []).filter((x) => x !== id);
   c.gold += Math.floor(it.cost / 2);
   return null;
 }
