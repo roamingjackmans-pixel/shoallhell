@@ -8,6 +8,9 @@ import { DEPTHS, HALL_LINES, type ScenarioDef } from '../data/story';
 import { TASKS } from '../data/tasks';
 import {
   buyItem,
+  camp,
+  MAX_CAMPAIGNS,
+  newCampaign,
   chooseLevelCard,
   choosePerk,
   deepest,
@@ -28,10 +31,16 @@ import { cardEl } from './cardView';
 import { clear, h, modal, toast } from './dom';
 import { cardDef } from '../game/rules';
 import { clearResume, getResume } from '../resume';
+import { GAME_VERSION } from '../version';
+import { friendBadge, friendsModal, onFriendsChange } from './friends';
 
 export interface HallNav {
   play(sc: ScenarioDef, chars: Character[]): void;
   resume(): void;
+  /** join a co-op lobby by code (friends list, invites) */
+  joinLobby(code: string): void;
+  /** the co-op room this tab is in, if any */
+  inCoop?(): string | null;
   coop(chars: Character[]): void;
   signOut(): void;
   story(title: string, lines: readonly string[], after: () => void, sub?: string): void;
@@ -40,16 +49,22 @@ export interface HallNav {
 let tab = 'campaign';
 let party: string[] = [];
 
+/** The tenants picked for the party in the hall (what co-op brings by default). */
+export function partyIds(): string[] {
+  return [...party];
+}
+
 export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
   const s = session!;
   const p = s.profile;
+  const k = camp(p);
   clear(root);
   const screen = h('div.screen.bgwater');
   root.appendChild(screen);
   const saveLabel = h('span.small.dim', s.mode === 'offline' ? 'Offline: saved on this device' : '');
   onSaveStatus((t) => (saveLabel.textContent = t));
 
-  const live = p.characters.filter((c) => !c.retired);
+  const live = k.characters.filter((c) => !c.retired);
   party = party.filter((id) => live.some((c) => c.id === id));
   if (!party.length && live.length) party = live.slice(0, Math.min(2, live.length)).map((c) => c.id);
 
@@ -64,9 +79,101 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     h('h1.logo', 'SHOAL', h('span', 'L'), 'HELL'),
     h('div.col', { style: { gap: '2px' } }, h('div', h('b', 'The Boiler Room'), h('span.dim', ' · Tenants’ Union hall')), h('div.small.dim', HALL_LINES[Math.floor(Date.now() / 60000) % HALL_LINES.length])),
     h('div.grow'),
+    h('button', { title: 'Switch between your campaigns, or start a new one', onclick: () => campaignsModal() }, `📜 ${k.name} ▾`),
+    s.mode === 'online' ? h('button', { onclick: () => friendsModal(nav) }, '👥 Friends', friendBadge()) : '',
     saveLabel,
     h('button.tiny', { onclick: () => accountModal(nav) }, s.mode === 'online' ? `👤 ${s.user.name}` : '👤 Offline'),
+    h('span.tiny.dim', { title: 'Game version' }, `v${GAME_VERSION}`),
   );
+
+  // ---------------------------------------------------------------- campaigns
+  function campaignsModal(): void {
+    const nameIn = h('input', { placeholder: 'New campaign name', maxlength: '32' }) as HTMLInputElement;
+    const list = h('div.col');
+    let close = (): void => undefined;
+    const draw = (): void => {
+      clear(list);
+      for (const c of p.campaigns) {
+        const live2 = c.characters.filter((x) => !x.retired);
+        const depth = DEPTHS[deepest(c) - 1]!;
+        const active = c.id === k.id;
+        list.appendChild(
+          h(
+            `div.depth.row.wrap${active ? '' : ''}`,
+            { style: active ? { borderColor: 'var(--glowen)' } : {} },
+            h(
+              'div.grow',
+              h('b', c.name),
+              active ? h('span.badge.new', ' playing') : '',
+              h('div.small.dim', `Depth ${depth.n}: ${depth.name} · ${c.completed.length} scenarios won · ${live2.length} tenant${live2.length === 1 ? '' : 's'}${live2.length ? ` (${live2.map((x) => x.name).join(', ')})` : ''}${c.ending ? ' · finished' : ''}`),
+            ),
+            active ? '' : h('button.primary.tiny', { onclick: () => ((p.active = c.id), (party = []), save(), close(), hallScreen(root, nav)) }, 'Play this one'),
+            h(
+              'button.tiny',
+              {
+                onclick: () => {
+                  const n = prompt('Rename the campaign', c.name);
+                  if (n && n.trim()) {
+                    c.name = n.trim().slice(0, 32);
+                    save();
+                    draw();
+                  }
+                },
+              },
+              'Rename',
+            ),
+            p.campaigns.length > 1
+              ? h(
+                  'button.tiny.danger',
+                  {
+                    onclick: () => {
+                      if (!confirm(`Delete "${c.name}"? Its tenants and progress are gone for good. Unlocked classes, Tasks and records stay.`)) return;
+                      p.campaigns = p.campaigns.filter((x) => x !== c);
+                      if (p.active === c.id) p.active = p.campaigns[0]!.id;
+                      save();
+                      close();
+                      hallScreen(root, nav);
+                    },
+                  },
+                  'Delete',
+                )
+              : '',
+          ),
+        );
+      }
+    };
+    draw();
+    close = modal(
+      h(
+        'div.col',
+        { style: { width: 'min(720px, 92vw)' } },
+        h('h2', 'Campaigns'),
+        h('div.small.dim', 'Each campaign has its own union of tenants and its own way down through the Depths. Unlocked classes, Tasks and records are shared by all of them.'),
+        list,
+        p.campaigns.length < MAX_CAMPAIGNS
+          ? h(
+              'div.row',
+              nameIn,
+              h(
+                'button.primary',
+                {
+                  onclick: () => {
+                    const c = newCampaign(nameIn.value || `Campaign ${p.campaigns.length + 1}`);
+                    p.campaigns.push(c);
+                    p.active = c.id;
+                    party = [];
+                    save();
+                    close();
+                    hallScreen(root, nav);
+                  },
+                },
+                'Start a new campaign',
+              ),
+            )
+          : h('div.small.dim', `You can keep up to ${MAX_CAMPAIGNS} campaigns.`),
+      ),
+    );
+  }
 
   // ---------------------------------------------------------------- roster
   const roster = h('div.roster');
@@ -99,20 +206,20 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     roster.appendChild(card);
   }
   roster.appendChild(h('button.primary', { onclick: () => recruit() }, '+ Recruit a tenant'));
-  if (p.fund > 0) {
+  if (k.fund > 0) {
     roster.appendChild(
       h(
         'div.panel.col',
         { style: { padding: '8px 10px' } },
-        h('div', 'Union fund: ', h('b.gold', `${p.fund} gold`), ' from finished Tasks.'),
+        h('div', 'Union fund: ', h('b.gold', `${k.fund} gold`), ' from finished Tasks.'),
         h(
           'button.tiny',
           {
             disabled: !live.length,
             onclick: () => {
-              const share = Math.floor(p.fund / live.length);
+              const share = Math.floor(k.fund / live.length);
               for (const c of live) c.gold += share;
-              p.fund -= share * live.length;
+              k.fund -= share * live.length;
               toast(`Each tenant gets ${share} gold.`);
               rerender();
             },
@@ -145,9 +252,19 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     'div.tabs',
     TABS.map(([id, label]) => h(`button${tab === id ? '.on' : ''}`, { onclick: () => ((tab = id), hallScreen(root, nav)) }, label, id === 'tasks' ? h('span.small.dim', ` ${doneTasks}/${TASKS.length}`) : null)),
   );
-  const partyChars = party.map((id) => p.characters.find((c) => c.id === id)!).filter(Boolean);
+  const partyChars = party.map((id) => k.characters.find((c) => c.id === id)!).filter(Boolean);
   const partyLine = h('div.small', partyChars.length ? `Party: ${partyChars.map((c) => `${c.name} (${CLASSES[c.cls]!.name} ${c.level})`).join(', ')}` : h('span.bad', 'Pick up to four tenants for your party (Add to party).'));
 
+  const inRoom = nav.inCoop?.() ?? null;
+  if (inRoom)
+    body.appendChild(
+      h(
+        'div.depth.row.wrap',
+        { style: { borderColor: 'var(--glowen)' } },
+        h('div.grow', h('b', 'You are in a co-op lobby '), `(room ${inRoom}). Missions your host starts will bring you along from anywhere.`),
+        h('button.primary', { onclick: () => nav.coop([]) }, 'Back to the lobby'),
+      ),
+    );
   const susp = getResume(s.user.id);
   if (susp)
     body.appendChild(
@@ -171,10 +288,10 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
   // ---------------------------------------------------------------- campaign
   function campaignTab(): HTMLElement {
     const box = h('div.col');
-    const list = scenarioList(p);
-    const deep = deepest(p);
+    const list = scenarioList(k);
+    const deep = deepest(k);
     box.appendChild(h('div.small.dim', 'Nine Depths down to the bottom of the Shoal. Each one ends with a boss that washed up there. Finished scenarios can be replayed for XP and gold.'));
-    if (p.ending) box.appendChild(h('div.good', 'The Executor is beaten and the will dissolved. The Shoal is quiet... mostly. Replay any scenario, or go on Riptide Delves.'));
+    if (k.ending) box.appendChild(h('div.good', 'The Executor is beaten and the will dissolved. The Shoal is quiet... mostly. Replay any scenario, or go on Riptide Delves.'));
     for (const d of DEPTHS) {
       const scs = list.filter((x) => x.sc.depth === d.n);
       const open = d.n <= deep;
@@ -193,8 +310,8 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
                     {
                       disabled: !partyChars.length,
                       onclick: () => {
-                        if (!p.seenDepths.includes(d.n)) {
-                          p.seenDepths.push(d.n);
+                        if (!k.seenDepths.includes(d.n)) {
+                          k.seenDepths.push(d.n);
                           save();
                           nav.story(`Depth ${d.n}: ${d.name}`, d.lines, () => nav.play(sc, partyChars), d.tagline);
                         } else nav.play(sc, partyChars);
@@ -230,7 +347,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
 
   function delveTab(): HTMLElement {
     const seed = Math.floor(Date.now() / 1000) % 1000000;
-    const sc = makeDelve(p, seed);
+    const sc = makeDelve(k, seed);
     return h(
       'div.col',
       h('h3', 'Riptide Delves'),
@@ -242,13 +359,13 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
 
   function coopTab(): HTMLElement {
     if (s.mode === 'offline')
-      return h('div.col', h('h3', 'Online co-op'), h('div', 'Co-op needs an account: sign out and create one (it’s free), then bring friends with a six-digit code.'), h('button', { onclick: () => nav.signOut() }, 'Sign out'));
+      return h('div.col', h('h3', 'Online co-op'), h('div', 'Co-op needs an account: sign out and create one (it’s free), then bring friends with a 4-digit code or your friends list.'), h('button', { onclick: () => nav.signOut() }, 'Sign out'));
     return h(
       'div.col',
       h('h3', 'Online co-op (up to four players)'),
-      h('div', 'Host a game and share the six-digit code, or join a friend’s. Everyone brings their own tenants and keeps everything they earn. The host picks the scenario from their own campaign.'),
-      h('div.small.dim', 'Bring one or two of your own heroes each (the table holds four heroes in total). The party you selected on the left is what you bring.'),
-      h('button.primary.big', { disabled: !partyChars.length, onclick: () => nav.coop(partyChars) }, 'Open the co-op lobby'),
+      h('div', 'Open a lobby and friends join it with the 4-digit code, an invite, or Join from their friends list. The lobby stays together for as many missions as you like: the host picks each one from their campaign and everyone comes along.'),
+      h('div.small.dim', 'Everyone brings their own tenants (four heroes at the table in total), chooses them in the lobby, and keeps everything they earn.'),
+      h('div.row', h('button.primary.big', { onclick: () => nav.coop(partyChars) }, inRoom ? 'Back to the lobby' : 'Co-op lobby'), h('button', { onclick: () => friendsModal(nav) }, '👥 Friends', friendBadge())),
     );
   }
 
@@ -282,7 +399,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
       live.map((c) => h(`button.tiny${c.id === buyer.id ? '.on' : ''}`, { onclick: () => ((party = [c.id, ...party.filter((x) => x !== c.id)].slice(0, 4)), hallScreen(root, nav)) }, `${c.name} (${c.gold}g)`)),
     );
     box.appendChild(pickBuyer);
-    const depth = deepest(p);
+    const depth = deepest(k);
     for (const it of Object.values(ITEMS)) {
       if (it.depth > depth) continue;
       const owned = buyer.items.includes(it.id);
@@ -319,7 +436,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
       'div.col',
       h('h3', 'Union records'),
       h('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto', gap: '4px 20px', width: 'max-content' } }, rows.map(([k, v]) => [h('span.dim', k), h('b', String(v))])),
-      h('div.small.dim', `Classes unlocked: ${p.classes.length} of ${CLASS_IDS.length}. Retired tenants: ${p.characters.filter((c) => c.retired).length}.`),
+      h('div.small.dim', `Classes unlocked: ${p.classes.length} of ${CLASS_IDS.length}. Retired tenants: ${k.characters.filter((c) => c.retired).length}.`),
     );
   }
 
@@ -363,7 +480,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     const create = (): void => {
       if (!p.classes.includes(pick)) return;
       const c = makeCharacter(nameIn.value || randomName(pick), pick);
-      p.characters.push(c);
+      k.characters.push(c);
       if (party.length < 4) party.push(c.id);
       close();
       toast(`${c.name} joins the union.`);
@@ -480,7 +597,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
           h('div', 'They hang up their gear and leave the union for good. Their gold goes to the union fund.'),
           h(
             'div.row',
-            h('button.danger', { onclick: () => ((c.retired = true), (p.fund += c.gold), (c.gold = 0), conf(), close(), rerender()) }, 'Retire'),
+            h('button.danger', { onclick: () => ((c.retired = true), (k.fund += c.gold), (c.gold = 0), conf(), close(), rerender()) }, 'Retire'),
             h('button', { onclick: () => conf() }, 'Keep them'),
           ),
         ),
@@ -496,7 +613,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     const msg = h('div.err');
     const diff = h(
       'div.row',
-      (['easy', 'normal', 'hard'] as const).map((d) => h(`button.tiny${p.difficulty === d ? '.on' : ''}`, { onclick: () => ((p.difficulty = d), save(), close(), accountModal(n)) }, d)),
+      (['easy', 'normal', 'hard'] as const).map((d) => h(`button.tiny${k.difficulty === d ? '.on' : ''}`, { onclick: () => ((k.difficulty = d), save(), close(), accountModal(n)) }, d)),
     );
     const close = modal(
       h(

@@ -4,7 +4,7 @@ import { CLASS_CARDS } from '../src/data/cards';
 import { CLASSES } from '../src/data/classes';
 import { SCENARIOS } from '../src/data/story';
 import { key, unkey } from '../src/game/grid';
-import { act, attackOptions, createCombat, heroes, moveOptions, tick, type HeroSetup } from '../src/game/rules';
+import { act, attackOptions, createCombat, heroes, moveOptions, pushOptions, tick, type HeroSetup } from '../src/game/rules';
 import type { CombatState, HeroUnit } from '../src/game/types';
 
 function setup(cls: string, i: number): HeroSetup {
@@ -40,6 +40,10 @@ function botStep(s: CombatState): boolean {
   }
   if (s.phase !== 'turns') return false;
   if (tick(s)) return true;
+  if (s.pushQ?.length && s.heroTurn) {
+    const o = pushOptions(s)[0]!;
+    return act(s, 'p', { t: 'push', uid: s.heroTurn.uid, x: o[0], y: o[1] }) === null;
+  }
   const t = s.heroTurn;
   if (!t) return false;
   const h = heroes(s).find((x) => x.uid === t.uid) as HeroUnit;

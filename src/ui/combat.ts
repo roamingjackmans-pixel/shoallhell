@@ -8,7 +8,7 @@ import { DEFEAT_QUIPS, DEFEAT_TITLES } from '../data/story';
 import { chartLine } from '../draw/elements';
 import { hexDist, key, los, unitAt } from '../game/grid';
 import type { Match } from '../game/match';
-import { aoeTiles, attackOptions, cardDef, heroPrompt, moveOptions, nameOf, objectiveText } from '../game/rules';
+import { aoeTiles, attackOptions, cardDef, heroPrompt, moveOptions, nameOf, objectiveText, pushOptions } from '../game/rules';
 import type { CombatState, Elem, HeroUnit, Step, Unit } from '../game/types';
 import { ELEMS } from '../game/types';
 import { Board } from '../render/board';
@@ -63,6 +63,11 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     },
     onTile: (x, y) => {
       const s = match.state;
+      // choosing where a pushed enemy goes
+      if (s.pushQ?.length && s.heroTurn && isMine(s, s.heroTurn.uid)) {
+        if (board.hl.push?.has(key(x, y))) send({ t: 'push', uid: s.heroTurn.uid, x, y });
+        return;
+      }
       const p = heroPrompt(s);
       if (!p || p.kind !== 'step' || !isMine(s, p.uid)) return;
       const st = p.step!;
@@ -127,6 +132,10 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     board.focusUid = s.phase === 'turns' && slot ? slot.who : null;
     const p = heroPrompt(s);
     if (!p || !isMine(s, p.uid) || s.pending) return;
+    if (s.pushQ?.length) {
+      board.hl.push = new Set(pushOptions(s).map(([x, y]) => key(x, y)));
+      return;
+    }
     const hero = s.units.find((u) => u.uid === p.uid) as HeroUnit;
     if (p.kind !== 'step' || !p.step) return;
     const st = p.step;
@@ -237,8 +246,11 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   }
 
   function renderLog(s: CombatState): void {
-    if (s.log.length === logLen && logbox.childElementCount) return;
-    logLen = s.log.length;
+    // redraw when the newest line changes (the log is capped, so its length alone stops changing)
+    const last = s.log[s.log.length - 1];
+    const sig = (last?.n ?? 0) * 100000 + s.log.length;
+    if (sig === logLen && logbox.childElementCount) return;
+    logLen = sig;
     clear(logbox);
     for (const l of s.log.slice(-60)) logbox.appendChild(h(`div.l-${l.kind ?? 'info'}`, l.t));
     logbox.scrollTop = logbox.scrollHeight;
@@ -550,6 +562,11 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         h('span.dim', 'Or use a half as a basic Attack 2 / Move 2.'),
         piles,
       );
+    } else if (s.pushQ?.length) {
+      // a push with more than one way to go: the player decides
+      const q = s.pushQ[0]!;
+      const target = s.units.find((u) => u.uid === q.uid);
+      prompt.append(h('span.what', `Push ${target ? nameOf(target) : 'the enemy'}: click an orange hex to choose where it goes${q.left > 1 ? ` (${q.left} spaces left)` : ''}.`));
     } else if (p.step) {
       prompt.append(
         h('span.what', stepPrompt(p.step, s, hero)),

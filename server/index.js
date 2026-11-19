@@ -1,6 +1,7 @@
 // Shoallhell server: email + password accounts, cloud saves (one profile per account) and the co-op relay.
 // The game itself runs in the browser: in co-op the host's browser runs the rules and this server only passes
-// messages between the host and up to three guests in a room with a 6-digit code.
+// messages between the host and up to three guests in a room with a 4-digit code. Friends (4-digit friend codes,
+// presence, invites without a code) live here too.
 //
 //   node server/index.js            (PORT, default 3031; DATA_DIR, default ./data)
 //
@@ -12,6 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
 import { changePassword, issueSession, login, logout, publicUser, rename, requireUser, signup, userForToken } from './auth.js';
+import { accept as acceptFriend, addByCode, areFriends, drop as dropFriend, friendIds, friendsView } from './friends.js';
 import { flush, load, put } from './store.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -91,6 +93,31 @@ api.post('/name', requireUser, (req, res) => {
   res.json({ ok: true, user: publicUser(req.user) });
 });
 
+// ------------------------------------------------------------------ friends
+
+api.get('/friends', requireUser, (req, res) => res.json(friendsView(req.user.id, presenceOf)));
+
+api.post('/friends/add', requireUser, (req, res) => {
+  const r = addByCode(req.user.id, req.body?.code);
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  friendsChanged(req.user.id, r.other);
+  res.json({ ok: true, friends: r.friends, view: friendsView(req.user.id, presenceOf) });
+});
+
+api.post('/friends/accept', requireUser, (req, res) => {
+  const r = acceptFriend(req.user.id, String(req.body?.id || ''));
+  if (r.error) return res.status(r.status).json({ error: r.error });
+  friendsChanged(req.user.id, r.other);
+  res.json({ ok: true, view: friendsView(req.user.id, presenceOf) });
+});
+
+/** decline a request, cancel your own, or unfriend */
+api.post('/friends/remove', requireUser, (req, res) => {
+  const r = dropFriend(req.user.id, String(req.body?.id || ''));
+  friendsChanged(req.user.id, r.other);
+  res.json({ ok: true, view: friendsView(req.user.id, presenceOf) });
+});
+
 app.use(`${BASE}/api`, api);
 app.use('/api', api);
 
@@ -110,24 +137,76 @@ const io = new Server(server, {
   maxHttpBufferSize: 2e6,
 });
 
-/** code -> { code, host: socketId, hostUser, players: Map(userId -> { userId, name, socketId, chars }) } */
+/**
+ * code -> { code, host: socketId | null, hostUser, hostAway: timeout | null,
+ *           players: Map(userId -> { userId, name, socketId | null, chars }) }
+ *
+ * Rooms survive people refreshing their browser: a guest who drops keeps their seat (shown offline) and gets it back
+ * by joining again with the same code; a host who drops has HOST_GRACE_MS to reclaim the room before it closes.
+ */
 const rooms = new Map();
+const HOST_GRACE_MS = 3 * 60 * 1000;
 
 function roomView(r) {
-  return { code: r.code, host: r.hostUser, players: [...r.players.values()].map((p) => ({ userId: p.userId, name: p.name, chars: p.chars, online: !!p.socketId })) };
+  return {
+    code: r.code,
+    host: r.hostUser,
+    hostOnline: !!r.host,
+    players: [...r.players.values()].map((p) => ({ userId: p.userId, name: p.name, chars: p.chars, online: !!p.socketId })),
+  };
 }
 
 function newCode() {
   for (let i = 0; i < 100; i++) {
-    const c = String(Math.floor(100000 + Math.random() * 900000));
+    const c = String(Math.floor(1000 + Math.random() * 9000));
+    if (!rooms.has(c)) return c;
+  }
+  // thousands of open rooms at once: fall back to five digits
+  for (let i = 0; i < 1000; i++) {
+    const c = String(Math.floor(10000 + Math.random() * 90000));
     if (!rooms.has(c)) return c;
   }
   return String(Date.now()).slice(-6);
 }
 
+// ------------------------------------------------------------------ presence (who is online, and in which lobby)
+
+/** userId -> the sockets that account has open (a person can have several tabs) */
+const online = new Map();
+
+function presenceOf(userId) {
+  const set = online.get(userId);
+  if (!set || !set.size) return { online: false, lobby: null };
+  let lobby = null;
+  for (const s of set) if (s.data.room && rooms.has(s.data.room)) lobby = s.data.room;
+  return { online: true, lobby };
+}
+
+function emitToUser(userId, ev, data) {
+  for (const s of online.get(userId) ?? []) s.emit(ev, data);
+}
+
+/** tell someone's friends that their status changed (online, offline, joined or left a lobby) */
+function presenceChanged(userId) {
+  for (const f of friendIds(userId)) emitToUser(f, 'friends:update', {});
+}
+
+/** tell both people that their friendship or request changed */
+function friendsChanged(a, b) {
+  if (a) emitToUser(a, 'friends:update', {});
+  if (b) emitToUser(b, 'friends:update', {});
+}
+
 function cleanChars(chars) {
   if (!Array.isArray(chars)) return [];
   return chars.slice(0, 4).map((c) => ({ charId: String(c.charId || '').slice(0, 40), name: String(c.name || '').slice(0, 24), cls: String(c.cls || '').slice(0, 20), level: Number(c.level) || 1 }));
+}
+
+function closeRoom(r, reason) {
+  if (r.hostAway) clearTimeout(r.hostAway);
+  rooms.delete(r.code);
+  io.to(r.code).emit('room:closed', { reason });
+  io.in(r.code).socketsLeave(r.code);
 }
 
 io.use((socket, next) => {
@@ -139,32 +218,86 @@ io.use((socket, next) => {
 
 io.on('connection', (socket) => {
   const me = socket.data.user;
-  const leave = () => {
+  if (!online.has(me.id)) online.set(me.id, new Set());
+  online.get(me.id).add(socket);
+  if (online.get(me.id).size === 1) presenceChanged(me.id);
+
+  /** invite a friend to the lobby you are in: they get a pop-up and can join without the code */
+  socket.on('friend:invite', (msg, ack) => {
+    const to = String(msg?.userId || '');
+    const r = rooms.get(socket.data.room);
+    if (!r) return ack?.({ error: 'Open a co-op lobby first.' });
+    if (!areFriends(me.id, to)) return ack?.({ error: 'You can only invite friends.' });
+    if (!presenceOf(to).online) return ack?.({ error: 'They are offline.' });
+    emitToUser(to, 'friend:invite', { fromId: me.id, fromName: me.name, code: r.code });
+    ack?.({ ok: true });
+  });
+
+  /** join a friend's lobby straight from the friends list */
+  socket.on('friend:lobby', (msg, ack) => {
+    const to = String(msg?.userId || '');
+    if (!areFriends(me.id, to)) return ack?.({ error: 'You can only join friends.' });
+    const lobby = presenceOf(to).lobby;
+    ack?.(lobby ? { ok: true, code: lobby } : { error: 'They are not in a lobby right now.' });
+  });
+
+  /** on purpose (Leave) the seat or room goes; on a dropped connection it is held for a comeback */
+  const leave = (onPurpose) => {
     const code = socket.data.room;
     if (!code) return;
     const r = rooms.get(code);
     socket.leave(code);
     socket.data.room = null;
+    presenceChanged(me.id);
     if (!r) return;
     if (r.host === socket.id) {
-      rooms.delete(code);
-      io.to(code).emit('room:closed', { reason: 'The host left.' });
-      io.in(code).socketsLeave(code);
+      if (onPurpose) return closeRoom(r, 'The host closed the game.');
+      r.host = null;
+      const p = r.players.get(me.id);
+      if (p) p.socketId = null;
+      io.to(code).emit('host:away', { until: Date.now() + HOST_GRACE_MS });
+      io.to(code).emit('room:update', roomView(r));
+      r.hostAway = setTimeout(() => {
+        if (!r.host) closeRoom(r, 'The host did not come back.');
+      }, HOST_GRACE_MS);
       return;
     }
-    r.players.delete(me.id);
+    const p = r.players.get(me.id);
+    if (!p || p.socketId !== socket.id) return;
+    if (onPurpose) {
+      r.players.delete(me.id);
+      if (r.host) io.to(r.host).emit('guest:left', { userId: me.id });
+    } else p.socketId = null;
     io.to(code).emit('room:update', roomView(r));
-    io.to(r.host).emit('guest:left', { userId: me.id });
   };
 
   socket.on('host:create', (msg, ack) => {
-    leave();
+    leave(true);
     const code = newCode();
-    const r = { code, host: socket.id, hostUser: me.id, players: new Map() };
+    const r = { code, host: socket.id, hostUser: me.id, hostAway: null, players: new Map() };
     r.players.set(me.id, { userId: me.id, name: me.name, socketId: socket.id, chars: cleanChars(msg?.chars) });
     rooms.set(code, r);
     socket.join(code);
     socket.data.room = code;
+    presenceChanged(me.id);
+    ack?.({ ok: true, room: roomView(r) });
+  });
+
+  /** the host comes back (after a refresh or a dropped connection) and takes the room over again */
+  socket.on('host:reclaim', (msg, ack) => {
+    const r = rooms.get(String(msg?.code || '').trim());
+    if (!r || r.hostUser !== me.id) return ack?.({ error: 'That game has closed.' });
+    if (r.hostAway) clearTimeout(r.hostAway);
+    r.hostAway = null;
+    if (r.host && r.host !== socket.id) io.sockets.sockets.get(r.host)?.leave(r.code);
+    r.host = socket.id;
+    const p = r.players.get(me.id);
+    if (p) p.socketId = socket.id;
+    socket.join(r.code);
+    socket.data.room = r.code;
+    presenceChanged(me.id);
+    socket.to(r.code).emit('host:back', {});
+    io.to(r.code).emit('room:update', roomView(r));
     ack?.({ ok: true, room: roomView(r) });
   });
 
@@ -172,15 +305,19 @@ io.on('connection', (socket) => {
     const code = String(msg?.code || '').trim();
     const r = rooms.get(code);
     if (!r) return ack?.({ error: 'No game with that code. Check the six digits with your host.' });
-    if (r.players.size >= 4 && !r.players.has(me.id)) return ack?.({ error: 'That game is full (four players).' });
     if (r.hostUser === me.id) return ack?.({ error: 'That is your own game.' });
-    leave();
-    r.players.set(me.id, { userId: me.id, name: me.name, socketId: socket.id, chars: cleanChars(msg?.chars) });
+    const seat = r.players.get(me.id);
+    if (!seat && r.players.size >= 4) return ack?.({ error: 'That game is full (four players).' });
+    if (socket.data.room !== code) leave(true);
+    // a returning player keeps their seat (and the heroes they brought)
+    const chars = cleanChars(msg?.chars);
+    r.players.set(me.id, { userId: me.id, name: me.name, socketId: socket.id, chars: seat && !chars.length ? seat.chars : chars.length ? chars : seat?.chars ?? [] });
     socket.join(code);
     socket.data.room = code;
+    presenceChanged(me.id);
     io.to(code).emit('room:update', roomView(r));
-    io.to(r.host).emit('guest:joined', { userId: me.id, name: me.name });
-    ack?.({ ok: true, room: roomView(r) });
+    if (r.host) io.to(r.host).emit('guest:joined', { userId: me.id, name: me.name, back: !!seat });
+    ack?.({ ok: true, room: roomView(r), back: !!seat });
   });
 
   socket.on('room:chars', (msg) => {
@@ -191,7 +328,7 @@ io.on('connection', (socket) => {
     io.to(r.code).emit('room:update', roomView(r));
   });
 
-  socket.on('room:leave', () => leave());
+  socket.on('room:leave', () => leave(true));
 
   // host -> everyone else in the room (state snapshots, scenario start, results)
   socket.on('host:msg', (msg) => {
@@ -200,14 +337,22 @@ io.on('connection', (socket) => {
     socket.to(r.code).emit('host:msg', msg);
   });
 
-  // guest -> host (intents)
+  // guest -> host (intents); dropped while the host is away
   socket.on('guest:msg', (msg) => {
     const r = rooms.get(socket.data.room);
-    if (!r || r.host === socket.id) return;
+    if (!r || !r.host || r.host === socket.id) return;
     io.to(r.host).emit('guest:msg', { from: me.id, msg });
   });
 
-  socket.on('disconnect', () => leave());
+  socket.on('disconnect', () => {
+    leave(false);
+    const set = online.get(me.id);
+    set?.delete(socket);
+    if (set && !set.size) {
+      online.delete(me.id);
+      presenceChanged(me.id);
+    }
+  });
 });
 
 server.listen(PORT, () => console.log(`[shoallhell] listening on http://localhost:${PORT}${BASE}/ (data: ${process.env.DATA_DIR || 'data'})`));

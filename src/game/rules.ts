@@ -60,7 +60,8 @@ export type Intent =
   | { t: 'item'; uid: string; item: string }
   | { t: 'negate'; uid: string; choice: string }
   | { t: 'restLose'; uid: string; card: string }
-  | { t: 'undo'; uid: string };
+  | { t: 'undo'; uid: string }
+  | { t: 'push'; uid: string; x: number; y: number };
 
 const EXPIRING: Cond[] = ['stun', 'immobilize', 'disarm', 'muddle', 'strengthen', 'invisible'];
 export const COIN_VALUE = [2, 2, 3, 3, 4, 4, 5, 6];
@@ -82,7 +83,8 @@ function hero(s: CombatState, uid: string): HeroUnit | undefined {
 }
 
 export function log(s: CombatState, t: string, kind?: 'hero' | 'monster' | 'info' | 'dmg' | 'heal' | 'good' | 'bad'): void {
-  s.log.push(kind ? { t, kind } : { t });
+  s.logSeq = (s.logSeq ?? 0) + 1;
+  s.log.push(kind ? { t, kind, n: s.logSeq } : { t, n: s.logSeq });
   if (s.log.length > 120) s.log.splice(0, s.log.length - 120);
 }
 
@@ -524,8 +526,55 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
 function afterHit(s: CombatState, a: Unit, t: Unit, cond: Cond[], push: number, pull: number): void {
   if (t.dead || (t.kind === 'hero' && t.exhausted)) return;
   for (const c of cond) giveCond(s, t, c);
-  if (push) shove(s, t, a, push, 1);
+  // a hero's push is the player's to aim (settlePushes); monsters and summons push automatically
+  if (push && a.kind === 'hero') (s.pushQ ??= []).push({ uid: t.uid, sx: a.x, sy: a.y, left: push });
+  else if (push) shove(s, t, a, push, 1);
   if (pull) shove(s, t, a, pull, -1);
+}
+
+/** Where a queued push can move its target next: empty open hexes one step farther from the pusher. */
+export function pushOptions(s: CombatState): [number, number][] {
+  const p = s.pushQ?.[0];
+  const t = p ? unit(s, p.uid) : undefined;
+  if (!p || !t || t.dead || p.left <= 0) return [];
+  const d0 = hexDist(t.x, t.y, p.sx, p.sy);
+  return neighbors(t.x, t.y).filter(([nx, ny]) => {
+    const c = tile(s.map, nx, ny);
+    if (c !== '.' && c !== ',' && c !== '~' && c !== 'T' && c !== 'd' && c !== 'X') return false;
+    return !unitAt(s, nx, ny) && hexDist(nx, ny, p.sx, p.sy) > d0;
+  });
+}
+
+function pushStep(s: CombatState, x: number, y: number): void {
+  const p = s.pushQ![0]!;
+  const t = unit(s, p.uid)!;
+  const from: [number, number] = [t.x, t.y];
+  t.x = x;
+  t.y = y;
+  p.left--;
+  fx(s, { kind: 'move', uid: t.uid, path: [from, [x, y]] });
+  enterTile(s, t, false);
+}
+
+/**
+ * Carry out queued pushes until one needs the player: each step with a single possible hex happens by itself.
+ * Returns true when every push is done.
+ */
+function settlePushes(s: CombatState): boolean {
+  while (s.pushQ?.length) {
+    const p = s.pushQ[0]!;
+    const t = unit(s, p.uid);
+    const opts = pushOptions(s);
+    if (!t || t.dead || p.left <= 0 || !opts.length) {
+      s.pushQ.shift();
+      continue;
+    }
+    if (opts.length > 1) return false;
+    pushStep(s, opts[0]![0], opts[0]![1]);
+  }
+  s.pushQ = [];
+  checkEnd(s);
+  return true;
 }
 
 function retaliateOn(s: CombatState, a: Unit, t: Unit): void {
@@ -725,6 +774,8 @@ export function checkEnd(s: CombatState): void {
 /** Move to the next slot in the initiative order (or end the round). */
 function nextSlot(s: CombatState): void {
   s.undo = null;
+  s.pushQ = [];
+  s.pushThen = null;
   const slot = s.order[s.turnIdx];
   if (slot) slot.done = true;
   s.turnIdx++;
@@ -1201,6 +1252,11 @@ function runSteps(s: CombatState, h: HeroUnit): void {
     if (h.exhausted) return;
     if (stepNeedsInput(s, h, st)) return;
     autoStep(s, h, st);
+    // an automatic attack pushed something with more than one way to go: wait for the player
+    if (!settlePushes(s)) {
+      s.pushThen = 'advance';
+      return;
+    }
     if (s.heroTurn?.cur === cur) advanceStep(s, h);
   }
 }
@@ -1449,6 +1505,28 @@ export function act(s: CombatState, player: string, i: Intent): string | null {
   return err;
 }
 
+/**
+ * A co-op player left the game for good: their heroes drop out (exhausted) so the fight can go on without waiting on
+ * them. (A player who only lost their connection keeps their heroes; the game waits for them to come back.)
+ */
+export function dropPlayer(s: CombatState, owner: string): boolean {
+  let changed = false;
+  for (const h of heroes(s)) {
+    if (h.owner !== owner || h.exhausted) continue;
+    h.exhausted = true;
+    changed = true;
+    log(s, `${h.name} leaves the fight: their player left the game.`, 'bad');
+    s.pendQ = s.pendQ.filter((p) => p.heroUid !== h.uid);
+    if (s.pending?.heroUid === h.uid) s.pending = s.pendQ.shift() ?? null;
+    if (s.phase === 'turns' && s.heroTurn?.uid === h.uid) nextSlot(s);
+  }
+  if (changed) {
+    checkEnd(s);
+    if (s.phase === 'select') maybeStart(s);
+  }
+  return changed;
+}
+
 /** The whole state as JSON (minus the log, effects and any older snapshot). */
 function snapshot(s: CombatState): string {
   return JSON.stringify({ ...s, undo: null, log: [], fx: [] });
@@ -1458,8 +1536,9 @@ function snapshot(s: CombatState): string {
 function undoHalf(s: CombatState, h: HeroUnit): string | null {
   if (!s.undo) return 'Nothing to take back: you have already acted on that card.';
   const before = JSON.parse(s.undo) as CombatState;
-  const { log: keepLog, fx: keepFx, fxId } = s;
+  const { log: keepLog, fx: keepFx, fxId, logSeq } = s;
   Object.assign(s, before);
+  s.logSeq = logSeq;
   s.log = keepLog;
   s.fx = keepFx;
   s.fxId = fxId;
@@ -1593,6 +1672,22 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
   if (s.pending) return 'Waiting for an answer.';
   const t = s.heroTurn;
   if (i.t === 'undo') return undoHalf(s, h);
+  // a push waiting for its direction comes first
+  if (s.pushQ?.length) {
+    if (i.t !== 'push') return 'Choose where to push the enemy first.';
+    const opts = pushOptions(s);
+    if (!opts.some(([x, y]) => x === i.x && y === i.y)) return 'It can’t be pushed there: pick a highlighted hex.';
+    pushStep(s, i.x, i.y);
+    if (settlePushes(s)) {
+      const then = s.pushThen;
+      s.pushThen = null;
+      if (then === 'advance' && s.phase === 'turns' && t.cur) {
+        advanceStep(s, h);
+        runSteps(s, h);
+      }
+    }
+    return null;
+  }
   // anything else done on the board is an action: the chosen half can no longer be taken back
   if (i.t !== 'half') s.undo = null;
   switch (i.t) {
@@ -1687,6 +1782,10 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
             .filter((u): u is Unit => !!u);
           for (const u of hitT) heroAttack(s, h, st, u);
           if (st.selfDmg && hitT.length) damage(s, h, st.selfDmg);
+          if (!settlePushes(s)) {
+            s.pushThen = 'advance';
+            return null;
+          }
           advanceStep(s, h);
           runSteps(s, h);
           return null;
@@ -1696,8 +1795,13 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
         heroAttack(s, h, st, target);
         const max = (st.targets ?? 1) + (b?.targets ?? 0);
         if (s.phase !== 'turns') return null;
-        if (cur.targetsHit.length >= max || attackOptions(s, h, st).length === 0) {
-          if (st.selfDmg) damage(s, h, st.selfDmg);
+        const done = cur.targetsHit.length >= max || attackOptions(s, h, st).length === 0;
+        if (done && st.selfDmg) damage(s, h, st.selfDmg);
+        if (!settlePushes(s)) {
+          s.pushThen = done ? 'advance' : 'stay';
+          return null;
+        }
+        if (done) {
           advanceStep(s, h);
           runSteps(s, h);
         }

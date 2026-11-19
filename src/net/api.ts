@@ -86,4 +86,24 @@ export const api = {
   save: (profile: unknown, rev: number) => call<{ rev: number }>('PUT', '/profile', { profile, rev }),
   password: (oldP: string, newP: string) => call<{ ok: boolean }>('POST', '/password', { old: oldP, new: newP }),
   rename: (name: string) => call<{ ok: boolean; user: User }>('POST', '/name', { name }),
+  friends: () => call<FriendsView>('GET', '/friends'),
+  addFriend: (code: string) => call<{ ok: boolean; friends: boolean; view: FriendsView }>('POST', '/friends/add', { code }),
+  acceptFriend: (id: string) => call<{ ok: boolean; view: FriendsView }>('POST', '/friends/accept', { id }),
+  removeFriend: (id: string) => call<{ ok: boolean; view: FriendsView }>('POST', '/friends/remove', { id }),
 };
+
+export interface FriendInfo {
+  id: string;
+  name: string;
+  code: string;
+  online?: boolean;
+  /** the co-op lobby they are in, if any */
+  lobby?: string | null;
+}
+export interface FriendsView {
+  /** your own friend code */
+  code: string;
+  friends: FriendInfo[];
+  incoming: FriendInfo[];
+  outgoing: FriendInfo[];
+}

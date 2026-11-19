@@ -4,6 +4,7 @@ import { SUBTITLE } from '../data/story';
 import { api } from '../net/api';
 import { clear, h } from './dom';
 import { titleArt } from './titleArt';
+import { GAME_VERSION } from '../version';
 
 export function authScreen(root: HTMLElement, done: (s: Session) => void): () => void {
   clear(root);
@@ -36,6 +37,7 @@ export function authScreen(root: HTMLElement, done: (s: Session) => void): () =>
     h('div.small.dim.center', 'Your union, heroes and campaign are saved to your account and follow you to any device.'),
     h('button', { onclick: () => done(startOffline()) }, 'Play offline on this device'),
     h('div.tiny.dim.center', 'Offline play saves in this browser only, and online co-op needs an account.'),
+    h('div.tiny.dim.center', `Version ${GAME_VERSION}`),
   );
   const wrap = h(
     'div.col',

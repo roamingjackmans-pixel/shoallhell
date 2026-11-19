@@ -27,7 +27,7 @@ function knightsTurn(): { s: CombatState; h: HeroUnit } {
   return { s, h };
 }
 
-const board = (s: CombatState): string => JSON.stringify({ ...s, log: [], fx: [], fxId: 0, undo: null });
+const board = (s: CombatState): string => JSON.stringify({ ...s, log: [], fx: [], fxId: 0, logSeq: 0, undo: null });
 
 describe('undo a chosen card half', () => {
   it('puts everything back before the hero acts', () => {

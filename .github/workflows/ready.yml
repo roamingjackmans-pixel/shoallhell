@@ -28,6 +28,8 @@ jobs:
       SHOALLHELL_SERVER: ${{ vars.SHOALLHELL_SERVER || 'https://shoallhell.fly.dev' }}
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the commit count is part of the version shown in the game
       - uses: actions/setup-node@v5
         with:
           node-version: 24

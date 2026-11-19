@@ -1,4 +1,4 @@
-// A co-op guest bot for manual testing: ROOM=123456 npx vitest run tests/coop-bot.test.ts
+// A co-op guest bot for manual testing: ROOM=1234 npx vitest run tests/coop-bot.test.ts
 // Signs up (or in) a second test account on the dev server, joins the room, brings a Brute and plays it.
 import { io } from 'socket.io-client';
 import { it } from 'vitest';
@@ -40,7 +40,7 @@ it.skipIf(!ROOM)(
     let last = '';
     let done = false;
     sock.on('host:msg', (m: { type: string; state?: CombatState }) => {
-      if ((m.type !== 'state' && m.type !== 'start') || !m.state) return;
+      if ((m.type !== 'state' && m.type !== 'start' && m.type !== 'rejoin') || !m.state) return;
       const s = m.state;
       if (s.phase === 'won' || s.phase === 'lost') {
         done = true;

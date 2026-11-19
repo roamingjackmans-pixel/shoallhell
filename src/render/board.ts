@@ -87,6 +87,8 @@ export interface Highlights {
   aoe?: (x: number, y: number) => [number, number][];
   draggable?: string;
   teleport?: Set<number>;
+  /** hexes a pushed enemy can be sent to (the player chooses) */
+  push?: Set<number>;
 }
 
 export interface BoardHandlers {
@@ -895,6 +897,7 @@ export class Board {
     };
     if (this.hl.move) for (const k of this.hl.move) fill(k, '#4aa3ff', 0.18 + (k === hk ? 0.25 : 0));
     if (this.hl.teleport) for (const k of this.hl.teleport) fill(k, '#b06bff', 0.18 + (k === hk ? 0.25 : 0));
+    if (this.hl.push) for (const k of this.hl.push) fill(k, '#ff9b2e', 0.24 + (k === hk ? 0.3 : 0) + Math.sin(now * 6) * 0.06);
     if (this.hl.aim) for (const k of this.hl.aim) fill(k, '#ff6a5a', 0.1);
     if (this.hl.aoe && this.hl.aim?.has(hk)) for (const [x, y] of this.hl.aoe(this.hover[0], this.hover[1])) fill(key(x, y), '#ff3b3b', 0.35);
     // the hovered hex

@@ -4,6 +4,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# the version shown in the game (passed by: fly deploy --build-arg GAME_VERSION=...)
+ARG GAME_VERSION=
+ENV GAME_VERSION=${GAME_VERSION}
 RUN npm run build
 
 FROM node:24-slim

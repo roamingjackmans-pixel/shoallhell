@@ -32,7 +32,18 @@ four players, with email + password accounts.
   (props, hazards, difficult ground, traps, chests, coins), with packs built the Dungeon Joe way. Some packs wash up
   from other zones, and the bottom Depth mixes them all. A room stays dark and its monsters do not exist until
   someone opens its door. Move the view by dragging empty ground or with WASD/arrow keys; zoom with the wheel or +/−.
-- **Campaign.** Nine Depths, 27 scenarios (clear, destroy targets, escape, survive, boss), plus random Riptide Delves.
+- **Campaigns.** Nine Depths, 27 scenarios (clear, destroy targets, escape, survive, boss), plus random Riptide Delves.
+  Keep up to 8 campaigns at once (📜 in the hall): each has its own tenants and progress; unlocked classes, Tasks and
+  records are shared by all of them.
+- **Co-op lobby.** Open a lobby and friends join with the 4-digit code, an invite, or Join from their friends list.
+  The lobby stays together across missions: the host starts each one and every guest is brought along automatically,
+  then everyone returns to the lobby. Each player picks their own heroes in the lobby and keeps what they earn.
+  Refreshing the page (host or guest) puts you straight back in the lobby or the fight; the server holds a host's room
+  for 3 minutes while they reconnect.
+- **Friends.** Every account has a 4-digit friend code. Add a friend by code (requests wait if they are offline),
+  see who is online and who is in a lobby, invite them with one click, or join theirs.
+- **Pushing.** When a hero pushes an enemy and it could go more than one way, you pick the hex (step by step).
+- **Version** is shown on the sign-in screen and in the hall header.
 - **Classes.** 14 classes: Dungeon Joe's ten (Knight, Brute, Duelist, Scholar, Pyre Priest, Battlemage, Hunter,
   Zealot, Berserker, Nobody) and four new ones (Shoal Diver, Notary, Glowsmith, Lamplighter). Four start unlocked;
   the rest unlock through **Tasks** as you play. Each class has ~19 cards: its level-1 hand plus two choices at each
@@ -82,6 +93,6 @@ src/data/      classes, cards (one file per class), monsters (converted from Dun
 src/draw/      Dungeon Joe's vector art, copied as-is (enemies, bosses, Joe, weapons, props)
 src/render/    the battle board, hero drawing, The Executor
 src/ui/        sign-in, hall, recruit, character sheet, combat HUD, lobby, results, story cards
-server/        Express + Socket.IO: email/password accounts (scrypt), profile saves, co-op rooms
+server/        Express + Socket.IO: email/password accounts (scrypt), profile saves, co-op rooms, friends and presence
 docs/          CARD_DESIGN.md (how cards are written)
 ```

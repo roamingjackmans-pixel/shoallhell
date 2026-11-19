@@ -2,7 +2,7 @@
 // sends intents to the host and draws whatever state comes back.
 import type { ScenarioDef } from '../data/story';
 import type { Coop } from '../net/coop';
-import { act, tick, type Intent } from './rules';
+import { act, dropPlayer, tick, type Intent } from './rules';
 import type { CombatState } from './types';
 
 export type Role = 'solo' | 'host' | 'guest';
@@ -41,7 +41,10 @@ export class Match {
             const err = act(this.state, m.from, m.msg.intent);
             if (err) coop.toGuests({ type: 'error', to: m.from, error: err });
             this.changed();
-          } else if (m.msg?.type === 'hello') this.broadcast();
+          } else if (m.msg?.type === 'hello' || m.msg?.type === 'setups') {
+            // a guest (re)joined mid-fight, e.g. after refreshing their browser: send them the whole game
+            this.sendRejoin();
+          }
           else if (m.msg?.type === 'ping') {
             const p = this.cleanPing((m.msg as { ping?: unknown }).ping, m.from);
             if (p) {
@@ -49,6 +52,12 @@ export class Match {
               coop.toGuests({ type: 'ping', ping: p });
             }
           }
+        }),
+        // the host's own connection came back: everyone gets the current state again
+        coop.on('reattached', () => this.sendRejoin()),
+        // a guest left on purpose: their heroes drop out so nobody waits on them
+        coop.on('guestleft', (g: { userId: string }) => {
+          if (dropPlayer(this.state, g.userId)) this.changed();
         }),
       );
     }
@@ -58,12 +67,14 @@ export class Match {
           if (m.type === 'ping' && m.ping && m.ping.from !== this.me) {
             const p = this.cleanPing(m.ping, m.ping.from);
             if (p) this.showPing(p);
-          } else if (m.type === 'state' && m.state) {
+          } else if ((m.type === 'state' || m.type === 'rejoin') && m.state) {
             this.state = m.state;
             this.notify();
           }
         }),
       );
+      // our connection came back: ask the host for the current state
+      this.offs.push(coop.on('reattached', () => coop.toHost({ type: 'hello' })));
       coop.toHost({ type: 'hello' });
     }
   }
@@ -103,6 +114,12 @@ export class Match {
 
   private notify(): void {
     for (const f of this.listeners) f(this.state);
+  }
+
+  /** Send the scenario and the full current state to every guest (for players coming back mid-fight). */
+  sendRejoin(): void {
+    if (this.role !== 'host' || !this.coop) return;
+    this.coop.toGuests({ type: 'rejoin', sc: this.sc, state: this.state.undo ? { ...this.state, undo: '1' } : this.state });
   }
 
   private broadcast(): void {

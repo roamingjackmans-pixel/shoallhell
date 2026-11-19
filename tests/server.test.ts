@@ -89,7 +89,7 @@ describe('server', () => {
     const host = await connect(tokA);
     const guest = await connect(tokB);
     const room = await new Promise<{ code: string }>((res) => host.emit('host:create', { chars: [{ charId: 'c1', name: 'Ser Colin', cls: 'knight', level: 1 }] }, (r: { room: { code: string } }) => res(r.room)));
-    expect(room.code).toMatch(/^\d{6}$/);
+    expect(room.code).toMatch(/^\d{4}$/);
     const joined = await new Promise<{ ok?: boolean; room?: { players: unknown[] } }>((res) => guest.emit('room:join', { code: room.code, chars: [] }, res));
     expect(joined.ok).toBe(true);
     expect(joined.room?.players.length).toBe(2);
@@ -99,10 +99,61 @@ describe('server', () => {
     const toGuest = new Promise<{ type: string }>((res) => guest.once('host:msg', res));
     host.emit('host:msg', { type: 'state', state: { round: 1 } });
     expect((await toGuest).type).toBe('state');
-    const closed = new Promise((res) => guest.once('room:closed', res));
+    // the host refreshes: the room is held, the guest is told, and the host takes it back
+    const away = new Promise((res) => guest.once('host:away', res));
     host.disconnect();
-    await closed;
+    await away;
+    const host2 = await connect(tokA);
+    const back = new Promise((res) => guest.once('host:back', res));
+    const re = await new Promise<{ ok?: boolean }>((res) => host2.emit('host:reclaim', { code: room.code }, res));
+    expect(re.ok).toBe(true);
+    await back;
+    // the guest refreshes: their seat (and heroes) are kept and they get back in with the same code
     guest.disconnect();
+    const guest2 = await connect(tokB);
+    const rejoined = await new Promise<{ ok?: boolean; back?: boolean }>((res) => guest2.emit('room:join', { code: room.code, chars: [] }, res));
+    expect(rejoined.ok).toBe(true);
+    expect(rejoined.back).toBe(true);
+    // leaving on purpose closes the room for everyone
+    const closed = new Promise((res) => guest2.once('room:closed', res));
+    host2.emit('room:leave');
+    await closed;
+    host2.disconnect();
+    guest2.disconnect();
+  });
+
+  it('friends: codes, requests, presence and invites without a room code', async () => {
+    const get = (tok: string) => fetch(`${BASE}/api/friends`, { headers: { Authorization: `Bearer ${tok}` } }).then((r) => r.json());
+    const a = await get(tokA);
+    const b = await get(tokB);
+    expect(a.code).toMatch(/^\d{4}$/);
+    expect(a.code).not.toBe(b.code);
+    expect((await post('/friends/add', { code: a.code }, tokA)).status).toBe(400); // own code
+    expect((await post('/friends/add', { code: '0000' }, tokA)).status).toBe(404);
+    // A asks B; B sees a request; B adding A back makes them friends
+    expect((await post('/friends/add', { code: b.code }, tokA)).data.friends).toBe(false);
+    expect((await get(tokB)).incoming.map((x: { name: string }) => x.name)).toEqual(['Host']);
+    expect((await post('/friends/add', { code: a.code }, tokB)).data.friends).toBe(true);
+    expect((await get(tokA)).friends.map((x: { name: string }) => x.name)).toEqual(['Guest']);
+    // presence: B comes online and opens a lobby; A sees it and can join it, or B invites A
+    const sb = await connect(tokB);
+    const sa = await connect(tokA);
+    const lobby = await new Promise<{ code: string }>((res) => sb.emit('host:create', { chars: [] }, (r: { room: { code: string } }) => res(r.room)));
+    const seen = (await get(tokA)).friends[0];
+    expect(seen.online).toBe(true);
+    expect(seen.lobby).toBe(lobby.code);
+    const viaList = await new Promise<{ code?: string }>((res) => sa.emit('friend:lobby', { userId: seen.id }, res));
+    expect(viaList.code).toBe(lobby.code);
+    const invite = new Promise<{ code: string; fromName: string }>((res) => sa.once('friend:invite', res));
+    const aId = (await get(tokB)).friends[0].id;
+    const sent = await new Promise<{ ok?: boolean }>((res) => sb.emit('friend:invite', { userId: aId }, res));
+    expect(sent.ok).toBe(true);
+    expect((await invite).code).toBe(lobby.code);
+    // unfriending removes both sides
+    await post('/friends/remove', { id: seen.id }, tokA);
+    expect((await get(tokB)).friends).toEqual([]);
+    sa.disconnect();
+    sb.disconnect();
   });
 
   it('refuses sockets without a session', async () => {

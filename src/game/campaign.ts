@@ -32,16 +32,14 @@ export interface Character {
   retired?: boolean;
 }
 
-export interface Profile {
-  v: number;
+/** One campaign: its own union of characters and its own way down through the Depths. */
+export interface Campaign {
+  id: string;
   name: string;
+  created: number;
   characters: Character[];
-  classes: string[];
   unlocked: string[];
   completed: string[];
-  stats: Partial<Record<StatKey, number>>;
-  tasksDone: string[];
-  seenPremise: boolean;
   seenDepths: number[];
   /** gold waiting to be claimed from tasks */
   fund: number;
@@ -49,37 +47,113 @@ export interface Profile {
   difficulty: 'easy' | 'normal' | 'hard';
 }
 
-export function newProfile(name: string): Profile {
+/**
+ * The account. Unlocked classes, Tasks and records belong to the account (they carry across every campaign); each
+ * campaign keeps its own characters and progress. `active` is the campaign the hall is showing.
+ */
+export interface Profile {
+  v: number;
+  name: string;
+  classes: string[];
+  stats: Partial<Record<StatKey, number>>;
+  tasksDone: string[];
+  seenPremise: boolean;
+  campaigns: Campaign[];
+  active: string;
+}
+
+export const MAX_CAMPAIGNS = 8;
+
+export function newCampaign(name: string): Campaign {
   return {
-    v: 1,
-    name,
+    id: `k${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`,
+    name: name.trim().slice(0, 32) || 'The Tenants’ Union',
+    created: Date.now(),
     characters: [],
-    classes: Object.values(CLASSES)
-      .filter((c) => c.start)
-      .map((c) => c.id),
     unlocked: ['1a'],
     completed: [],
-    stats: {},
-    tasksDone: [],
-    seenPremise: false,
     seenDepths: [],
     fund: 0,
     difficulty: 'normal',
   };
 }
 
-/** Fill in fields an older save is missing. */
-export function upgradeProfile(p: Profile): Profile {
-  const base = newProfile(p.name ?? 'Tenant');
-  const out = { ...base, ...p };
-  for (const c of out.characters) {
-    c.hand ??= [];
-    c.items ??= [];
-    c.perks ??= [];
-    c.pendingCards ??= [];
-    c.pendingPerks ??= 0;
+export function newProfile(name: string): Profile {
+  const first = newCampaign('The Tenants’ Union');
+  return {
+    v: 2,
+    name,
+    classes: Object.values(CLASSES)
+      .filter((c) => c.start)
+      .map((c) => c.id),
+    stats: {},
+    tasksDone: [],
+    seenPremise: false,
+    campaigns: [first],
+    active: first.id,
+  };
+}
+
+/** The campaign the hall is showing (making one if somehow there is none). */
+export function camp(p: Profile): Campaign {
+  let c = p.campaigns.find((x) => x.id === p.active) ?? p.campaigns[0];
+  if (!c) {
+    c = newCampaign('The Tenants’ Union');
+    p.campaigns.push(c);
+  }
+  p.active = c.id;
+  return c;
+}
+
+/** Find a character in any of the account's campaigns. */
+export function findCharacter(p: Profile, id: string): Character | undefined {
+  for (const c of p.campaigns) {
+    const ch = c.characters.find((x) => x.id === id);
+    if (ch) return ch;
+  }
+  return undefined;
+}
+
+/** Fill in fields an older save is missing; a version-1 save (one campaign) becomes the first campaign. */
+export function upgradeProfile(raw: Profile): Profile {
+  const old = raw as Profile & Partial<Campaign> & { characters?: Character[] };
+  const base = newProfile(old.name ?? 'Tenant');
+  const out: Profile = {
+    v: 2,
+    name: old.name ?? base.name,
+    classes: Array.isArray(old.classes) ? old.classes : base.classes,
+    stats: old.stats ?? {},
+    tasksDone: old.tasksDone ?? [],
+    seenPremise: !!old.seenPremise,
+    campaigns: Array.isArray(old.campaigns) ? old.campaigns : [],
+    active: old.active ?? '',
+  };
+  if (!out.campaigns.length) {
+    // version 1: everything lived on the profile itself
+    const c = newCampaign('The Tenants’ Union');
+    c.characters = old.characters ?? [];
+    c.unlocked = old.unlocked ?? c.unlocked;
+    c.completed = old.completed ?? [];
+    c.seenDepths = old.seenDepths ?? [];
+    c.fund = old.fund ?? 0;
+    if (old.ending) c.ending = true;
+    c.difficulty = old.difficulty ?? 'normal';
+    out.campaigns.push(c);
+    out.active = c.id;
+  }
+  for (const k of out.campaigns) {
+    const fresh = newCampaign(k.name);
+    Object.assign(k, { ...fresh, ...k });
+    for (const c of k.characters) {
+      c.hand ??= [];
+      c.items ??= [];
+      c.perks ??= [];
+      c.pendingCards ??= [];
+      c.pendingPerks ??= 0;
+    }
   }
   for (const id of base.classes) if (!out.classes.includes(id)) out.classes.push(id);
+  camp(out);
   return out;
 }
 
@@ -183,25 +257,25 @@ export function choosePerk(c: Character, idx: number): boolean {
 }
 
 /** Scenario level: half the party's average level, rounded up, plus depth and difficulty. */
-export function scenarioLevel(levels: number[], depth: number, difficulty: Profile['difficulty']): number {
+export function scenarioLevel(levels: number[], depth: number, difficulty: Campaign['difficulty']): number {
   const avg = levels.reduce((a, b) => a + b, 0) / Math.max(1, levels.length);
   const d = difficulty === 'easy' ? -1 : difficulty === 'hard' ? 1 : 0;
   return Math.max(0, Math.min(7, Math.ceil(avg / 2) + Math.floor((depth - 1) / 3) + d));
 }
 
-export function deepest(p: Profile): number {
+export function deepest(k: Campaign): number {
   let d = 1;
-  for (const id of p.unlocked) d = Math.max(d, scenarioById(id)?.depth ?? 1);
+  for (const id of k.unlocked) d = Math.max(d, scenarioById(id)?.depth ?? 1);
   return d;
 }
 
-/** A random side scenario at any Depth already reached. */
-export function makeDelve(p: Profile, seed: number): ScenarioDef {
+/** A random side scenario at any Depth this campaign has reached. */
+export function makeDelve(k: Campaign, seed: number): ScenarioDef {
   const r = (n: number): number => {
     seed = (seed * 1103515245 + 12345) & 0x7fffffff;
     return seed % n;
   };
-  const depth = 1 + r(deepest(p));
+  const depth = 1 + r(deepest(k));
   const objectives: Objective[] = [{ kind: 'clear' }, { kind: 'clear' }, { kind: 'escape' }, { kind: 'survive', rounds: 5 }];
   const objective = objectives[r(objectives.length)]!;
   const zone = DEPTHS[depth - 1]!.zone;
@@ -244,15 +318,17 @@ function bump(p: Profile, k: StatKey, n: number): void {
 
 /**
  * Apply a finished fight to this account's profile. `owner` is this account's player id: only its own heroes gain
- * XP and gold here (co-op partners apply the same state to their own profiles). `campaign` is false when the
- * scenario is not this account's to complete (a guest helping on a scenario they have not unlocked yet).
+ * XP and gold here (co-op partners apply the same state to their own profiles). Progress goes to the campaign the
+ * heroes belong to; a co-op guest (`asGuest`) only gets it when their campaign has that scenario open too.
  */
-export function applyResult(p: Profile, s: CombatState, owner: string, sc: ScenarioDef, campaign: boolean): Outcome {
+export function applyResult(p: Profile, s: CombatState, owner: string, sc: ScenarioDef, asGuest: boolean): Outcome {
   const won = s.phase === 'won';
   const out: Outcome = { won, heroes: [], tasks: [], classes: [], newScenarios: [], ending: false };
   const mine = s.units.filter((u): u is HeroUnit => u.kind === 'hero' && u.owner === owner);
+  const k = p.campaigns.find((x) => mine.some((h) => x.characters.some((c) => c.id === h.charId))) ?? camp(p);
+  const campaign = !asGuest || k.unlocked.includes(sc.id);
   for (const h of mine) {
-    const c = p.characters.find((x) => x.id === h.charId);
+    const c = findCharacter(p, h.charId);
     if (!c) continue;
     const bonus = won ? 4 + 2 * s.scenario.level : 0;
     const xpGained = h.xp + bonus;
@@ -288,20 +364,20 @@ export function applyResult(p: Profile, s: CombatState, owner: string, sc: Scena
     if (sc.objective.kind === 'boss') bump(p, 'bossesKilled', 1);
     if (sc.id.startsWith('delve')) bump(p, 'delvesWon', 1);
     if (campaign && !sc.id.startsWith('delve')) {
-      if (!p.completed.includes(sc.id)) p.completed.push(sc.id);
+      if (!k.completed.includes(sc.id)) k.completed.push(sc.id);
       for (const u of sc.unlocks)
-        if (!p.unlocked.includes(u)) {
-          p.unlocked.push(u);
+        if (!k.unlocked.includes(u)) {
+          k.unlocked.push(u);
           out.newScenarios.push(u);
         }
       if (sc.id === '9c') {
-        p.ending = true;
+        k.ending = true;
         out.ending = true;
       }
     }
-    p.stats.deepest = Math.max(p.stats.deepest ?? 1, deepest(p));
+    p.stats.deepest = Math.max(p.stats.deepest ?? 1, deepest(k));
   }
-  const t = checkTasks(p);
+  const t = checkTasks(p, k);
   out.tasks = t.tasks;
   out.classes = t.classes;
   return out;
@@ -313,8 +389,8 @@ export function taskProgress(p: Profile, id: string): { have: number; goal: numb
   return { have: Math.min(have, t.goal), goal: t.goal, done: p.tasksDone.includes(id) };
 }
 
-/** Complete any task whose goal is met: unlock its class, add its gold to the union fund. */
-export function checkTasks(p: Profile): { tasks: string[]; classes: string[] } {
+/** Complete any task whose goal is met: unlock its class (for every campaign), add its gold to a campaign's fund. */
+export function checkTasks(p: Profile, k: Campaign = camp(p)): { tasks: string[]; classes: string[] } {
   const tasks: string[] = [];
   const classes: string[] = [];
   for (const t of TASKS) {
@@ -327,13 +403,13 @@ export function checkTasks(p: Profile): { tasks: string[]; classes: string[] } {
       p.classes.push(t.cls);
       classes.push(t.cls);
     }
-    if (t.gold) p.fund += t.gold;
+    if (t.gold) k.fund += t.gold;
   }
   return { tasks, classes };
 }
 
-export function scenarioList(p: Profile): { sc: ScenarioDef; done: boolean; open: boolean }[] {
-  return SCENARIOS.map((sc) => ({ sc, done: p.completed.includes(sc.id), open: p.unlocked.includes(sc.id) }));
+export function scenarioList(k: Campaign): { sc: ScenarioDef; done: boolean; open: boolean }[] {
+  return SCENARIOS.map((sc) => ({ sc, done: k.completed.includes(sc.id), open: k.unlocked.includes(sc.id) }));
 }
 
 export function buyItem(c: Character, id: string): string | null {

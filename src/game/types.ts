@@ -349,6 +349,8 @@ export interface HeroTurn {
 
 export interface LogLine {
   t: string;
+  /** running number of the line in this fight (the log keeps only the newest lines, so its length stops changing) */
+  n?: number;
   kind?: 'hero' | 'monster' | 'info' | 'dmg' | 'heal' | 'good' | 'bad';
 }
 
@@ -431,5 +433,14 @@ export interface CombatState {
    * turn. Co-op guests receive '1' instead of the snapshot.
    */
   undo?: string | null;
+  /**
+   * Pushes a hero caused that wait for the player to choose where the enemy goes (one hex at a time; when only one hex
+   * works it is used without asking). sx/sy is where the push comes from.
+   */
+  pushQ?: { uid: string; sx: number; sy: number; left: number }[];
+  /** once the pushes are settled: carry on to the card's next step ('advance') or stay on this one (more targets) */
+  pushThen?: 'advance' | 'stay' | null;
+  /** how many log lines this fight has written (see LogLine.n) */
+  logSeq?: number;
   result?: { won: boolean; rounds: number; text: string };
 }
