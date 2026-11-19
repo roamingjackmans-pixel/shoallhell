@@ -17,6 +17,10 @@ function setup(cls: string, i: number): HeroSetup {
 function botStep(s: CombatState): boolean {
   if (s.pending) {
     const h = heroes(s).find((x) => x.uid === s.pending!.heroUid)!;
+    // the avoid-damage question only comes for lethal hits or hits of half the max HP or more
+    const d = s.pending.dmg;
+    if (!(d > 0 && (d >= h.hp || d * 2 >= h.maxHp))) throw new Error(`asked to avoid a small hit: ${d} on ${h.hp}/${h.maxHp}`);
+    if (d < h.hp) heavyAsks++;
     const c = h.hand.find((x) => !h.picked.includes(x));
     return act(s, 'p', { t: 'negate', uid: h.uid, choice: c ?? 'take' }) === null || act(s, 'p', { t: 'negate', uid: h.uid, choice: 'take' }) === null;
   }
@@ -95,6 +99,9 @@ function botStep(s: CombatState): boolean {
   return act(s, 'p', { t: 'skip', uid: h.uid }) === null;
 }
 
+/** avoid-damage questions for heavy hits that were not lethal, seen across the sims */
+let heavyAsks = 0;
+
 function play(s: CombatState, maxBeats = 6000): number {
   let beats = 0;
   while (s.phase !== 'won' && s.phase !== 'lost' && beats++ < maxBeats) {
@@ -133,12 +140,24 @@ describe('rules engine', () => {
         const s = createCombat(SCENARIOS[0]!, party.slice(0, size).map(setup), 1, i * 7 + size);
         play(s);
         games++;
+        // the stats page adds up
+        for (const u of heroes(s)) {
+          const st = u.stats;
+          expect((st.hits ?? 0) + (st.misses ?? 0)).toBe(st.attacks ?? 0);
+          expect(st.turns ?? 0).toBeGreaterThan(0);
+          expect((st.halves ?? 0) + (st.basics ?? 0)).toBeGreaterThan(0);
+          expect(st.bestHit ?? 0).toBeLessThanOrEqual(st.dmg);
+        }
         if (s.phase === 'won') wins++;
       }
     }
     // the bot is dumb; just make sure games end
     expect(games).toBe(classes.length * 2);
     console.log(`bot wins ${wins}/${games}`);
+  });
+
+  it('heavy (not just lethal) hits offer to lose cards instead', () => {
+    expect(heavyAsks).toBeGreaterThan(0);
   });
 
   it('map keys round-trip', () => {

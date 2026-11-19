@@ -198,3 +198,19 @@ button.inv-cell:hover, button.inv-cell:focus-visible { border-color: var(--accen
 .rest-banner .rest-sub { font-size: 12px; color: #b8c8f0; }
 .resting-tag { color: #b8ccff; font-weight: 700; }
 @keyframes restGlow { 0%, 100% { box-shadow: 0 0 8px rgba(143, 180, 255, 0.3); } 50% { box-shadow: 0 0 20px rgba(143, 180, 255, 0.7); } }
+
+/* scenario stats page */
+.statswrap { overflow-x: auto; max-height: 70vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 8px; }
+table.stats { border-collapse: collapse; width: 100%; font-size: 13px; }
+table.stats th, table.stats td { padding: 4px 10px; text-align: center; border-bottom: 1px solid rgba(255,255,255,.05); white-space: nowrap; }
+table.stats thead th { position: sticky; top: 0; background: #1d1a25; z-index: 1; vertical-align: bottom; font-weight: 700; }
+table.stats td.label { text-align: left; color: var(--dim); }
+table.stats tr.section td { text-align: left; font-weight: 800; color: var(--accent); background: rgba(230,184,74,.07); letter-spacing: .5px; padding-top: 8px; }
+table.stats td.lead { color: #ffd24a; font-weight: 800; }
+table.stats td.zero { color: rgba(255,255,255,.28); }
+table.stats .total { background: rgba(255,255,255,.04); font-weight: 700; border-left: 1px solid var(--line); }
+
+/* class tasks on the hero sheet */
+.ctask { flex: 1 1 260px; display: flex; flex-direction: column; gap: 4px; }
+.ctask-marks .mark-on { color: var(--good); font-weight: 800; margin-left: 3px; }
+.ctask-marks .mark-off { color: var(--dim); margin-left: 3px; }

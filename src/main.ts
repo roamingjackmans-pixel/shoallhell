@@ -184,7 +184,7 @@ function runMatch(match: Match, after: () => void, label?: string, onOver?: () =
         const outcome = applyResult(s.profile, st, s.user.id, match.sc, match.role === 'guest');
         void saveNow();
         if (cs && !cs.coop.isHost) cs.coop.toHost({ type: 'setups', setups: setupsFor(cs.charIds) }); // levels may have changed
-        const results = (): void => show(() => resultsScreen(root, match.sc.name, outcome, after, label));
+        const results = (): void => show(() => resultsScreen(root, match.sc.name, outcome, after, label, st));
         if (outcome.won && match.sc.outro.length) {
           const lines = outcome.ending ? [...match.sc.outro, ...EPILOGUE] : match.sc.outro;
           show(() => storyScreen(root, outcome.ending ? 'The End (of the lease)' : match.sc.name, lines, results));

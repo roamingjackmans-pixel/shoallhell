@@ -342,8 +342,28 @@ function killUnit(s: CombatState, u: Unit, by?: Unit): void {
   } else log(s, `${nameOf(u)} is destroyed.`, 'bad');
 }
 
+/** Add to a hero's scenario stats. */
+function bump(h: HeroUnit | undefined, k: string, n = 1): void {
+  if (!h || !n) return;
+  h.stats[k] = (h.stats[k] ?? 0) + n;
+}
+
+function bumpMax(h: HeroUnit | undefined, k: string, n: number): void {
+  if (h && n > (h.stats[k] ?? 0)) h.stats[k] = n;
+}
+
+/** The hero behind a unit: itself, or a summon's owner. */
+function heroOf(s: CombatState, u: Unit | undefined): HeroUnit | undefined {
+  return u?.kind === 'hero' ? u : u?.kind === 'summon' ? hero(s, u.heroUid) : undefined;
+}
+
 function damage(s: CombatState, u: Unit, n: number, by?: Unit): void {
   if (n <= 0 || u.dead) return;
+  if (u.kind === 'hero') {
+    bump(u, 'dmgTaken', n);
+    if (!by) bump(u, 'hazardDmg', n);
+  }
+  if (u.kind === 'monster' && monsterDef(u.monster).boss) bump(heroOf(s, by), 'bossDmg', n);
   u.hp -= n;
   fx(s, { kind: 'dmg', uid: u.uid, text: `-${n}`, color: '#ff5a4a' });
   if (by && by.kind === 'hero') by.stats.dmg += n;
@@ -364,6 +384,7 @@ function healUnit(s: CombatState, u: Unit, n: number, by?: HeroUnit): number {
   }
   const amt = Math.max(0, Math.min(n, u.maxHp - u.hp));
   u.hp += amt;
+  if (u.kind === 'hero') bump(u, 'healed', amt);
   fx(s, { kind: 'heal', uid: u.uid, text: `+${amt}`, color: '#7dff8a' });
   if (by) by.stats.heals += amt;
   return amt;
@@ -493,6 +514,15 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
   if (a.kind === 'monster' && t.kind === 'hero' && wears(t.items, 'noCrit')) used = used.map((m) => (m.mult === 'x2' ? { v: 0 } : m));
   let val = applyMods(base, used);
   const missed = used.some((m) => m.mult === 'null' || m.temp === 'curse');
+  if (a.kind === 'hero') {
+    bump(a, 'attacks');
+    bump(a, missed ? 'misses' : 'hits');
+    bump(a, 'crits', used.filter((m) => m.mult === 'x2' || m.temp === 'bless').length);
+  }
+  if (t.kind === 'hero') {
+    bump(t, 'attacked');
+    if (missed) bump(t, 'dodged');
+  }
   for (const m of used) {
     if (m.cond) cond.push(m.cond);
     if (m.infuse) infuseEl(s, m.infuse, a.kind === 'hero' ? a : undefined);
@@ -521,6 +551,8 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
   if (o.red) sh = 0;
   sh = Math.max(0, sh - pierce);
   const dmg = Math.max(0, val - sh);
+  if (t.kind === 'hero') bump(t, 'blocked', Math.min(val, sh));
+  if (a.kind === 'hero') bumpMax(a, 'bestHit', dmg);
   for (const p of pShields) usePersist(s, t as HeroUnit, p);
   fx(s, { kind: o.ranged ? 'shot' : 'swing', uid: a.uid, to: t.uid, ...(type !== 'physical' ? { el: type } : {}) });
   log(
@@ -528,8 +560,9 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
     `${nameOf(a)} attacks ${nameOf(t)} for ${base} (${label}${aff > 1 ? ', weak +1' : aff < 1 ? ', resists −1' : ''}${sh ? `, shield −${sh}` : ''}${o.red ? ', RED: ignores shield' : ''}) → ${dmg}.`,
     a.kind === 'monster' ? 'monster' : 'hero',
   );
-  // a lethal hit on a hero who can still lose cards becomes a question
-  if (t.kind === 'hero' && dmg >= t.hp && dmg > 0 && (t.hand.length >= 1 || t.discard.length >= 2)) {
+  // a big hit (lethal, or half the hero's max HP or more) on a hero who can still lose cards becomes a question:
+  // lose one card from the hand or two from the discard pile to take no damage
+  if (t.kind === 'hero' && dmg > 0 && (dmg >= t.hp || dmg * 2 >= t.maxHp) && (t.hand.length >= 1 || t.discard.length >= 2)) {
     const p: Pending = { kind: 'negate', heroUid: t.uid, dmg, cond, push, pull, fromUid: a.uid, by: nameOf(a) };
     s.pendQ.push(p);
     if (!s.pending) s.pending = s.pendQ.shift()!;
@@ -550,7 +583,12 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
 
 function afterHit(s: CombatState, a: Unit, t: Unit, cond: Cond[], push: number, pull: number): void {
   if (t.dead || (t.kind === 'hero' && t.exhausted)) return;
-  for (const c of cond) giveCond(s, t, c);
+  const by = t.kind === 'monster' ? heroOf(s, a) : undefined;
+  for (const c of cond) {
+    if (by && t.kind === 'monster' && NEGATIVE.includes(c) && !t.conds.includes(c) && !monsterDef(t.monster).immune?.includes(c)) bump(by, 'condsGiven');
+    giveCond(s, t, c);
+  }
+  if (by && (push || pull)) bump(by, 'shoved');
   // a hero's push is the player's to aim (settlePushes); monsters and summons push automatically
   if (push && a.kind === 'hero') (s.pushQ ??= []).push({ uid: t.uid, sx: a.x, sy: a.y, left: push });
   else if (push) shove(s, t, a, push, 1);
@@ -611,6 +649,7 @@ function retaliateOn(s: CombatState, a: Unit, t: Unit): void {
   if (r > 0 && hexDist(a.x, a.y, t.x, t.y) <= range) {
     log(s, `${nameOf(t)} retaliates for ${r}.`, t.kind === 'monster' ? 'monster' : 'hero');
     for (const p of pr) usePersist(s, t as HeroUnit, p);
+    if (t.kind === 'hero') bump(t, 'retDmg', r);
     damage(s, a, r, t);
   }
 }
@@ -872,6 +911,7 @@ export function tick(s: CombatState): boolean {
         nextSlot(s);
         return true;
       }
+      bump(h, 'turns');
       if (h.longRest) log(s, `${h.name} takes a long rest: choose a card from the discard pile to lose.`, 'hero');
       else log(s, `${h.name}'s turn.`, 'hero');
       return true;
@@ -1265,6 +1305,7 @@ function prepStep(s: CombatState, h: HeroUnit): void {
     const el = consume(s, choice);
     if (el) {
       (cur as { bonus?: Consume }).bonus = u;
+      bump(h, 'elSpent');
       log(s, `${h.name} spends ${el}: ${u.text ?? 'bonus'}.`, 'hero');
       fx(s, { kind: 'infuse', el, uid: h.uid, text: 'spent' });
     }
@@ -1355,6 +1396,7 @@ function autoStep(s: CombatState, h: HeroUnit, st: Step): void {
     case 'shield': {
       const n = st.n + (b?.shield ?? b?.n ?? 0);
       const list = st.all ? alliesOf(s, h).filter((a) => hexDist(a.x, a.y, h.x, h.y) <= (st.range ?? 0)) : [h];
+      bump(h, 'shieldGiven', n * list.length);
       for (const a of list) {
         a.shield += n;
         fx(s, { kind: 'shield', uid: a.uid, text: `Shield ${n}`, color: '#9ad0ff' });
@@ -1419,6 +1461,7 @@ function autoStep(s: CombatState, h: HeroUnit, st: Step): void {
         summoned: true,
       };
       s.units.push(su);
+      bump(h, 'summons');
       log(s, `${h.name} summons ${def.name}.`, 'hero');
       fx(s, { kind: 'text', uid: su.uid, text: def.name, color: '#9ce59c' });
       return;
@@ -1451,6 +1494,7 @@ function addBless(s: CombatState, from: HeroUnit, to: Unit, n: number): void {
 function takePickup(s: CombatState, h: HeroUnit, p: (typeof s.pickups)[number]): void {
   if (p.opened) return;
   p.opened = true;
+  bump(h, p.kind === 'coin' ? 'coins' : 'chests');
   if (p.kind === 'coin') {
     const g = COIN_VALUE[Math.min(7, s.scenario.level)]!;
     h.gold += g;
@@ -1664,6 +1708,7 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
       h.discard = [];
       h.shortRested = true;
       h.restDraw = null;
+      bump(h, 'shortRests');
       log(s, `${h.name} finishes a short rest and loses ${cardDef(lose).name}.`, 'hero');
       // too few cards left to play a turn: exhausted now, and the round may be ready to start without them
       checkExhaustion(s);
@@ -1679,6 +1724,7 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
       h.stats.lost++;
       h.hand.push(...h.discard);
       h.discard = [];
+      bump(h, 'longRests');
       healUnit(s, h, 2, h);
       for (const it of h.items) if (it.state === 'spent') it.state = 'ready';
       log(s, `${h.name} rests, loses ${cardDef(i.card).name}, heals and refreshes items.`, 'hero');
@@ -1698,12 +1744,14 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
         h.discard = h.discard.filter((c) => !pair.includes(c));
         h.lost.push(...pair);
         h.stats.lost += 2;
+        bump(h, 'negated');
         log(s, `${h.name} loses ${pair.map((c) => cardDef(c).name).join(' and ')} to avoid the damage.`, 'hero');
       } else {
         if (!h.hand.includes(i.choice) || h.picked.includes(i.choice)) return 'Pick a card from your hand (not one you picked this round).';
         h.hand = h.hand.filter((c) => c !== i.choice);
         h.lost.push(i.choice);
         h.stats.lost++;
+        bump(h, 'negated');
         log(s, `${h.name} loses ${cardDef(i.choice).name} to avoid the damage.`, 'hero');
       }
       if (attacker) afterHit(s, attacker, h, p.cond, p.push, p.pull);
@@ -1761,6 +1809,7 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
       const snap = snapshot(s);
       t.cur = { card: i.card, half: i.half, basic: i.basic, step: 0, steps, targetsHit: [], anyHit: false, stepReady: false };
       const c = cardDef(i.card);
+      bump(h, i.basic ? 'basics' : 'halves');
       s.undo = snap;
       log(s, `${h.name} plays ${i.basic ? (i.half === 'top' ? 'a basic Attack 2' : 'a basic Move 2') : `${c.name} (${i.half === 'top' ? 'top' : 'bottom'})`}.`, 'hero');
       runSteps(s, h);
@@ -1814,6 +1863,7 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
         if (h.exhausted) break;
       }
       fx(s, { kind: 'move', uid: h.uid, path });
+      bump(h, 'moved', path.length - 1);
       void from;
       cur.movesLeft = budget - Math.floor(c + 1e-9);
       if (h.exhausted) {
@@ -1950,6 +2000,8 @@ function useItem(s: CombatState, h: HeroUnit, id: string): string | null {
   if (e.cond?.length) h.next.cond = [...(h.next.cond ?? []), ...e.cond];
   if (e.adv) h.next.adv = true;
   it.state = def.use === 'consumed' ? 'consumed' : 'spent';
+  bump(h, 'items');
+  if (e.shield) bump(h, 'shieldGiven', e.shield);
   s.undo = null;
   log(s, `${h.name} uses ${def.name}.`, 'hero');
   fx(s, { kind: 'text', uid: h.uid, text: def.name, color: '#ffd24a' });

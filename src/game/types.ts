@@ -288,7 +288,22 @@ export interface HeroUnit extends UnitBase {
   enh?: EnhMap;
   ready: boolean;
   escaped?: boolean;
-  stats: { dmg: number; kills: number; heals: number; infusions: number; rangedKills: number; elitesKilled: number; lost: number };
+  stats: HeroStats;
+}
+
+/**
+ * What a hero did in this scenario (shown on the stats page). The named ones always exist; the rest are added as they
+ * happen (see bump() in rules.ts), so older saved fights still load.
+ */
+export interface HeroStats {
+  dmg: number;
+  kills: number;
+  heals: number;
+  infusions: number;
+  rangedKills: number;
+  elitesKilled: number;
+  lost: number;
+  [k: string]: number;
 }
 
 export interface ActiveCard {

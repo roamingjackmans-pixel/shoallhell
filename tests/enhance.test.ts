@@ -119,6 +119,8 @@ describe('the Boiler', () => {
 
   it('every class starts with three spare cards, and old characters get new starter cards', () => {
     for (const cls of Object.keys(CLASSES)) expect(starterCards(cls), cls).toHaveLength(CLASSES[cls]!.hand + 3);
+    // and everyone brings at least 10 cards into a scenario
+    for (const cls of Object.keys(CLASSES)) expect(CLASSES[cls]!.hand, cls).toBeGreaterThanOrEqual(10);
     const c = makeCharacter('K', 'knight');
     const fresh = [...c.cards];
     c.cards = c.cards.slice(0, 5);

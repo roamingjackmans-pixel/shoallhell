@@ -62,7 +62,7 @@ export const CLASSES: Record<string, ClassDef> = {
   scholar: {
     id: 'scholar', name: 'Scholar', role: 'Ranged magic · area spells · elements · fragile', start: true, color: '#3a4a8a', elem: 'magic',
     blurb: 'Read about dungeons once. Has now read about seas. Has brought the book.',
-    hp: LOW, hand: 9, weapon: 'w_rapier', off: { kind: 'tool', draw: 't_staff_arcane' },
+    hp: LOW, hand: 10, weapon: 'w_rapier', off: { kind: 'tool', draw: 't_staff_arcane' },
     look: { skin: '#f0d8b8', hair: '#8a6a3a', head: 'wizard', headColor: '#3a4a8a', body: 'robe', bodyColor: '#3a4a8a', trim: '#e6b84a', legsColor: '#2a2a3a', hairStyle: 'long', beard: 'goatee', emblem: 'star', emblemColor: '#e6b84a', belt: '#e6b84a', legs: 'slippers' },
     perks: [...COMMON, ['Add two +1 Magic cards', '+1m,1m'], ['Add two +1 Fire cards', '+1f,1f'], ['Add one +2 Immobilize card', '+2immobilize'], ['Add one +1 Heal 2 card', '+1heal']],
   },
@@ -102,9 +102,9 @@ export const CLASSES: Record<string, ClassDef> = {
     perks: [...COMMON, ['Add two rolling +2 cards', '+r2,r2'], ['Add one +1 Fire card', '+1f'], ['Add two +1 Wound cards', '+1wound,1wound'], ['Add one +3 card', '+3']],
   },
   nobody: {
-    id: 'nobody', name: 'Nobody', role: 'Joe · a bit of everything · small hand · big Thermos', start: false, color: '#9a8a7a', elem: null,
+    id: 'nobody', name: 'Nobody', role: 'Joe · a bit of everything · big Thermos', start: false, color: '#9a8a7a', elem: null,
     blurb: 'Joe. Just Joe. He came down for the fuse box. Again.',
-    hp: MED, hand: 9, weapon: 'w_club',
+    hp: MED, hand: 10, weapon: 'w_club',
     look: { skin: '#e8c9a0', hair: '#4a3626', head: 'none', headColor: '#c9b98a', body: 'bathrobe', bodyColor: '#9a8a7a', trim: '#c9b98a', legsColor: '#8a6a3a', hairStyle: 'messy', beard: 'stubble', legs: 'slippers' },
     perks: [...COMMON, ['Add one +2 card', '+2'], ['Add two rolling +1 cards', '+r1,r1'], ['Add one +1 Heal 2 card', '+1heal'], ['Remove one −1 card and add one +1 card', '--1;+1']],
   },

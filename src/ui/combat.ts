@@ -15,6 +15,7 @@ import { Board } from '../render/board';
 import { abilityEl, cardEl, condName, stepText } from './cardView';
 import { clear, h, modal, toast } from './dom';
 import { describeTile } from './tileInfo';
+import { statsEl } from './stats';
 
 const EL_GLYPH: Record<Elem, string> = { fire: '🔥', magic: '✦', void: '◐', holy: '☀' };
 const EL_COLOR: Record<Elem, string> = { fire: 'var(--fire)', magic: 'var(--magic)', void: 'var(--void)', holy: 'var(--holy)' };
@@ -183,6 +184,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         ),
       ),
       h('button.tiny', { onclick: () => board.fit(), title: 'Fit the map (F). Pan: drag empty ground or WASD/arrows. Zoom: wheel or +/−' }, '⤢ Fit'),
+      h('button.tiny', { onclick: () => modal(h('div', { style: { width: 'min(1000px, 94vw)' } }, statsEl(match.state))), title: 'Everything each hero has done this scenario so far' }, '📊 Stats'),
       h('button.tiny', { onclick: () => helpModal() }, '? Rules'),
     );
   }
@@ -689,10 +691,11 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       }
     };
     drawDiscards();
+    const lethal = p.dmg >= hero.hp;
     const body = h(
       'div.col',
-      h('h2', `${hero.name} is about to fall!`),
-      h('div', `${p.by} hits for ${p.dmg}, enough to exhaust ${hero.name}. Lose cards to take no damage?`),
+      h('h2', lethal ? `${hero.name} is about to fall!` : `A heavy hit on ${hero.name}!`),
+      h('div', lethal ? `${p.by} hits for ${p.dmg}, enough to exhaust ${hero.name}. Lose cards to take no damage?` : `${p.by} hits for ${p.dmg} (half ${hero.name}'s max HP or more: HP ${hero.hp} → ${Math.max(0, hero.hp - p.dmg)}). Lose cards to take no damage?`),
       h('div.small.dim', 'Lose one card of your choice from your hand, or two of your choice from your discard pile. Conditions from the hit still apply.'),
       h('h3', choices.length ? 'From your hand: click one card to lose it' : 'No cards in hand you can lose'),
       h(
@@ -709,14 +712,38 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       h('div.row', hero.discard.length >= 2 ? pairBtn : '', h('button.danger', { onclick: () => answer('take') }, `Take ${p.dmg} damage`)),
     );
     let answered = false;
+    const wrap = h('div', body);
+    // nothing happens until the choice is confirmed
     const answer = (choice: string): void => {
-      answered = true;
-      negateClose?.();
-      negateClose = null;
-      send({ t: 'negate', uid: hero.uid, choice });
+      const names = choice === 'take' ? [] : choice.startsWith('discard:') ? choice.slice(8).split(',') : [choice];
+      const what =
+        choice === 'take'
+          ? `Take ${p.dmg} damage? ${hero.name} goes from ${hero.hp} to ${Math.max(0, hero.hp - p.dmg)} HP${p.dmg >= hero.hp ? ' and is exhausted' : ''}.`
+          : `Lose ${names.map((c) => heroCard(hero, c).name).join(' and ')} for the rest of the scenario and take no damage?`;
+      wrap.replaceChildren(
+        h(
+          'div.col',
+          { style: { alignItems: 'center', gap: '12px' } },
+          h('h2', { style: { margin: 0 } }, choice === 'take' ? 'Take the hit?' : 'Avoid the damage?'),
+          h('div', { style: { maxWidth: '440px', textAlign: 'center' } }, what),
+          names.length ? h('div.row', names.map((c) => cardEl(heroCard(hero, c), { small: true }))) : null,
+          h(
+            'div.row',
+            h(`button.${choice === 'take' ? 'danger' : 'primary'}`, {
+              onclick: () => {
+                answered = true;
+                negateClose?.();
+                negateClose = null;
+                send({ t: 'negate', uid: hero.uid, choice });
+              },
+            }, choice === 'take' ? `Take ${p.dmg} damage` : names.length > 1 ? 'Lose both cards' : 'Lose the card'),
+            h('button', { onclick: () => wrap.replaceChildren(body) }, 'Back'),
+          ),
+        ),
+      );
     };
     // clicking outside the dialog must not leave the question unanswered: it comes straight back
-    negateClose = modal(body, () => {
+    negateClose = modal(wrap, () => {
       if (answered) return;
       negateClose = null;
       setTimeout(() => renderPending(match.state), 0);

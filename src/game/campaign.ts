@@ -5,6 +5,7 @@ import { CLASSES, levelForXp, MAX_LEVEL } from '../data/classes';
 import { ITEMS, smallSlots } from '../data/items';
 import { DELVE_NAMES, DEPTHS, SCENARIOS, scenarioById, type ScenarioDef } from '../data/story';
 import { TASKS, type StatKey } from '../data/tasks';
+import { CHECKS_PER_PERK, CLASS_TASKS, type ClassTask } from '../data/classTasks';
 import { enhBlocked, enhCost, type Enh, type EnhKind, type EnhMap } from './enhance';
 import type { HeroSetup } from './rules';
 import type { CombatState, HeroUnit, Objective } from './types';
@@ -37,6 +38,10 @@ export interface Character {
   enh?: EnhMap;
   /** Bless cards waiting for the next scenario (from donations at the Boiler) */
   blessed?: number;
+  /** career totals of their scenario stats (what class tasks count) */
+  life?: Record<string, number>;
+  /** class-task checkmarks earned so far (every CHECKS_PER_PERK is a perk) */
+  checks?: number;
 }
 
 /** One campaign: its own union of characters and its own way down through the Depths. */
@@ -162,6 +167,8 @@ export function upgradeProfile(raw: Profile): Profile {
       c.pendingPerks ??= 0;
       c.enh ??= {};
       c.blessed ??= 0;
+      c.life ??= {};
+      c.checks ??= 0;
       // level-1 cards added to a class since the character was made join their pool
       c.cards ??= [];
       for (const id of starterCards(c.cls)) if (!c.cards.includes(id)) c.cards.push(id);
@@ -191,6 +198,8 @@ export function makeCharacter(name: string, cls: string): Character {
     equipped: [],
     enh: {},
     blessed: 0,
+    life: {},
+    checks: 0,
     perks: [],
     pendingCards: [],
     pendingPerks: 0,
@@ -393,6 +402,10 @@ export interface HeroResult {
   goldGained: number;
   levelUps: number;
   items: string[];
+  /** class-task stages reached in this scenario */
+  checks?: { task: string; stage: number }[];
+  /** perks earned from checkmarks in this scenario */
+  checkPerks?: number;
 }
 
 export interface Outcome {
@@ -440,7 +453,8 @@ export function applyResult(p: Profile, s: CombatState, owner: string, sc: Scena
     const found = ((h as HeroUnit & { found?: string[] }).found ?? []).filter((id) => !c.items.includes(id));
     c.items.push(...found);
     for (const id of found) autoEquip(c, id);
-    out.heroes.push({ charId: c.id, name: c.name, xpGained, goldGained, levelUps: after - before, items: found });
+    const ct = recordClassTasks(c, h.stats);
+    out.heroes.push({ charId: c.id, name: c.name, xpGained, goldGained, levelUps: after - before, items: found, checks: ct.stages, checkPerks: ct.perks });
     bump(p, 'kills', h.stats.kills);
     bump(p, 'heals', h.stats.heals);
     bump(p, 'infusions', h.stats.infusions);
@@ -566,4 +580,40 @@ export function donate(k: Campaign, c: Character): string | null {
   c.blessed = DONATION_BLESS;
   k.donated = (k.donated ?? 0) + DONATION;
   return null;
+}
+
+// ------------------------------------------------------------------ class tasks and perk checkmarks
+
+/** Where a hero stands on one class task: their career total and how many of its three stages are done. */
+export function classTaskProgress(c: Character, t: ClassTask): { have: number; stages: number; next: number | null } {
+  const have = c.life?.[t.stat] ?? 0;
+  const stages = t.goals.filter((g) => have >= g).length;
+  return { have, stages, next: t.goals[stages] ?? null };
+}
+
+/** All class-task checkmarks a hero has reached. */
+export function checkmarks(c: Character): number {
+  return (CLASS_TASKS[c.cls] ?? []).reduce((n, t) => n + classTaskProgress(c, t).stages, 0);
+}
+
+/**
+ * Add a scenario's stats to a hero's career totals, award checkmarks for class-task stages reached, and a perk for
+ * every CHECKS_PER_PERK checkmarks.
+ */
+export function recordClassTasks(c: Character, stats: Record<string, number>): { stages: { task: string; stage: number }[]; perks: number } {
+  const tasks = CLASS_TASKS[c.cls] ?? [];
+  const before = tasks.map((t) => classTaskProgress(c, t).stages);
+  c.life ??= {};
+  for (const [k, v] of Object.entries(stats)) if (typeof v === 'number') c.life[k] = k === 'bestHit' ? Math.max(c.life[k] ?? 0, v) : (c.life[k] ?? 0) + v;
+  const stages: { task: string; stage: number }[] = [];
+  tasks.forEach((t, i) => {
+    const now = classTaskProgress(c, t).stages;
+    for (let st = before[i]! + 1; st <= now; st++) stages.push({ task: t.id, stage: st });
+  });
+  const old = c.checks ?? 0;
+  const total = checkmarks(c);
+  c.checks = total;
+  const perks = Math.floor(total / CHECKS_PER_PERK) - Math.floor(old / CHECKS_PER_PERK);
+  if (perks > 0) c.pendingPerks += perks;
+  return { stages, perks: Math.max(0, perks) };
 }

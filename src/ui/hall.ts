@@ -10,6 +10,8 @@ import { TASKS } from '../data/tasks';
 import {
   buyItem,
   camp,
+  checkmarks,
+  classTaskProgress,
   MAX_CAMPAIGNS,
   newCampaign,
   chooseLevelCard,
@@ -44,6 +46,7 @@ import { cardEl } from './cardView';
 import { clear, h, modal, toast } from './dom';
 import { cardDef, heroCard } from '../game/rules';
 import { enhancerTab } from './enhancer';
+import { CHECKS_PER_PERK, CLASS_TASKS } from '../data/classTasks';
 import { clearResume, getResume } from '../resume';
 import { GAME_VERSION } from '../version';
 import { friendBadge, friendsModal, onFriendsChange } from './friends';
@@ -664,6 +667,37 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
           ),
         );
       } else if (c.perks.length) content.appendChild(h('div.small', 'Perks: ', c.perks.map((i) => def.perks[i]?.[0]).join(' · ')));
+      // class tasks: three stages each; every stage is a checkmark, every three checkmarks a perk
+      const ctasks = CLASS_TASKS[c.cls] ?? [];
+      if (ctasks.length) {
+        const marks = checkmarks(c);
+        const toNext = CHECKS_PER_PERK - (marks % CHECKS_PER_PERK);
+        const maxMarks = ctasks.length * 3;
+        content.append(
+          h('h3', 'Class tasks'),
+          h(
+            'div.small.dim',
+            `Career goals for a ${def.name}. Each stage reached is a checkmark; every ${CHECKS_PER_PERK} checkmarks earn a perk for the modifier deck. Checkmarks: `,
+            h('b.accent', `${marks} / ${maxMarks}`),
+            marks < maxMarks ? ` (${toNext} more for the next perk)` : ' (all done)',
+          ),
+          h(
+            'div.row.wrap',
+            { style: { gap: '8px', alignItems: 'stretch' } },
+            ctasks.map((t) => {
+              const pr = classTaskProgress(c, t);
+              const goal = pr.next ?? t.goals[2];
+              return h(
+                `div.task.ctask${pr.stages === 3 ? '.done' : ''}`,
+                h('div', h('b', t.name), h('span.ctask-marks', ' ', [0, 1, 2].map((i) => h(`span.${i < pr.stages ? 'mark-on' : 'mark-off'}`, i < pr.stages ? '✔' : '○')))),
+                h('div.small', `${t.text}: ${t.goals.join(' / ')}`),
+                h('div.bar', h('i', { style: { width: `${Math.min(100, Math.round((pr.have / goal) * 100))}%`, background: pr.stages === 3 ? 'var(--good)' : '' } })),
+                h('div.tiny.dim', pr.next === null ? `Done (${pr.have})` : `${pr.have} / ${pr.next} for stage ${pr.stages + 1}`),
+              );
+            }),
+          ),
+        );
+      }
       // inventory: Dungeon Joe style paper doll and bag (only equipped items come into a scenario)
       content.append(
         h('h3', 'Inventory'),

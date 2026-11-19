@@ -2,7 +2,7 @@
 import { H, L, P, atk, bless, deck, heal, loot, mv, recover, shield, summon, use, xp } from '../dsl';
 
 export const NOBODY = deck('nobody', [
-  // ---- level 1 (hand 9, so three spare to leave at home)
+  // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 34, 'Bonk', H([atk(3)]), H([mv(3)]), 'Not a technique. Just a noise.'],
   [1, 62, 'Thermos Break', H([heal(3), shield(1)]), H([mv(3)])],
   [1, 88, 'Gary Owes Rent', L([summon('gary', 2)]), H([mv(2), heal(2)]), 'He has never paid. He will never pay. He is, somehow, useful.'],
@@ -15,6 +15,7 @@ export const NOBODY = deck('nobody', [
   [1, 79, 'Lucky Penny', H([bless(2, 0)]), H([mv(3), loot(2)]), 'Found it in the Shoal. It glows. Probably fine.'],
   [1, 21, 'Rolled-Up Newspaper', H([atk(2, { aoe: 'cleave' })]), H([mv(2), loot(1)]), 'Yesterday’s news. Today’s weapon.'],
   [1, 49, 'Put the Kettle On', H([heal(2, { range: 2 })]), H([mv(3), shield(1)]), 'Fixes nothing. Takes four minutes. Helps anyway.'],
+  [1, 58, 'Mind the Doormat', H([atk(2, { cond: ['immobilize'] })]), H([mv(3), shield(1)]), 'WELCOME, it says. It is lying.'],
   // ---- level 2
   [2, 24, 'Bonk Harder', H([atk(3, { push: 1, cond: ['muddle'] })]), H([mv(3)])],
   [2, 66, 'Refill the Thermos', H([heal(3, { range: 2 })]), H([mv(2), heal(2)]), 'Not tea. Do not ask why it glows.'],

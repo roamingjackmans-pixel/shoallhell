@@ -17,8 +17,9 @@ four players, with email + password accounts.
 - **Rests.** *Short rest* any time between rounds (even with an empty hand): all discards come back except one
   random card, which is lost; you may pay 1 HP once to keep that card and lose a different random one instead.
   *Long rest* (when you are out of cards, or whenever you like): it takes your turn, heals 2, refreshes items, and
-  you choose which discarded card to lose. Run out entirely and you are exhausted. A hit that would knock you out
-  can be avoided by losing a card of your choice from your hand, or two of your choice from your discard pile.
+  you choose which discarded card to lose. Run out entirely and you are exhausted. Any attack that would knock you out,
+  or that does half your max HP or more, can be avoided by losing a card of your choice from your hand, or two of
+  your choice from your discard pile (you confirm before anything happens).
 - **Hexes and drag and drop.** The board is a hex grid. On a move, drag your hero up to the number of hexes the card
   gives (blue hexes), or click one. Click red-ringed enemies to attack, green-ringed allies to heal or shield, aim area attacks by hovering.
   Hover any hex to see what it is (obstacle, hazard, rubble, trap, door, loot) in the corner panel, and right-click
@@ -46,6 +47,13 @@ four players, with email + password accounts.
 - **Inventory.** Dungeon Joe style paper doll on each hero's sheet: one helmet, one chest, one pair of shoes, two hand
   items (one for classes with a two-handed weapon) and potions/utility items up to half the level, rounded up. Everything
   else waits in the bag; click to equip or swap. Only equipped items come into a scenario.
+- **Class tasks and perk checkmarks.** Every class has two career goals (e.g. the Knight's *The Wall*: block
+  10 / 30 / 60 damage with Shield) with three stages each. Each stage reached is a checkmark, and every three
+  checkmarks earn an extra perk, on top of the one per level-up. They count the hero's lifetime stats; see
+  `src/data/classTasks.ts`.
+- **Stats.** When a scenario ends, the results screen shows a full stats table: damage, hits and misses, kills,
+  damage taken and blocked, healing, shields, elements, cards, rests, items, movement and loot, one column per
+  hero plus the party total, with the best in each line highlighted. 📊 Stats shows the same table mid-fight.
 - **Gary's stall.** 46 items (healing, shields, retaliate, next-attack bonuses, elements, blessings, max HP,
   hazard-proof boots...). Gary stocks new ones as the campaign reaches each Depth or as prosperity rises, and shows
   what is on order next. Chests can hold anything he would stock there. Item effects are data in `src/data/items.ts`.
