@@ -38,7 +38,7 @@ describe('undo a chosen card half', () => {
     expect(s.undo).toBeTruthy();
     expect(h.shield).toBeGreaterThan(0);
     expect(act(s, 'p', { t: 'undo', uid: h.uid })).toBeNull();
-    expect(board(s)).toBe(before);
+    expect(JSON.parse(board(s))).toEqual(JSON.parse(before)); // same state (key order may differ after a restore)
     expect(s.heroTurn?.used).toEqual([]);
     expect(s.log.at(-1)?.t).toMatch(/takes that card back/);
   });

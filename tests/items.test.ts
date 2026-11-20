@@ -49,15 +49,32 @@ describe('items', () => {
     expect(act(t2.s, 'p', { t: 'item', uid: t2.h.uid, item: 'tide_boots' })).toMatch(/moving/);
   });
 
+  it('return the discards you choose, never random ones', () => {
+    const { s, h } = myTurn(['potion_stamina', 'deed']);
+    // an empty discard: the tea does nothing (and is not used up); the deed still works
+    expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'potion_stamina' })).toMatch(/empty/);
+    expect(h.items.find((i) => i.id === 'potion_stamina')!.state).toBe('ready');
+    h.discard = h.hand.splice(0, 3);
+    const [a, b, c] = h.discard as [string, string, string];
+    expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'potion_stamina' })).toMatch(/Choose up to 2/);
+    expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'potion_stamina', cards: [a, b, c] })).toMatch(/at most 2/);
+    expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'potion_stamina', cards: ['nope'] })).toMatch(/discard pile/);
+    expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'potion_stamina', cards: [a, c] })).toBeNull();
+    expect(h.discard).toEqual([b]);
+    expect(h.hand).toEqual(expect.arrayContaining([a, c]));
+    expect(h.items.find((i) => i.id === 'potion_stamina')!.state).toBe('consumed');
+  });
+
   it('can be used on a long rest turn', () => {
     const setup: HeroSetup = { owner: 'p', charId: 'k', name: 'K', cls: 'knight', level: 1, maxHp: 10, cards: ['knight_charge_the_line', 'knight_tabard_of_faith', 'knight_shield_bash', 'knight_riposte'], items: ['plate', 'potion_heal', 'boots'], perks: [] };
     const s = createCombat(SCENARIOS[0]!, [setup], 1, 3);
     const h = s.units.find((u): u is HeroUnit => u.kind === 'hero')!;
     h.discard.push(h.hand.pop()!, h.hand.pop()!);
-    h.hp = 3;
     expect(act(s, 'p', { t: 'longRest', uid: h.uid })).toBeNull();
     for (let i = 0; i < 80 && !(s.heroTurn?.uid === h.uid && s.heroTurn.started); i++) tick(s);
     expect(s.heroTurn?.uid).toBe(h.uid);
+    h.hp = 3; // whatever the monsters did before the rest turn
+    h.shield = 0;
     expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'plate' })).toBeNull();
     expect(h.shield).toBe(2);
     expect(act(s, 'p', { t: 'item', uid: h.uid, item: 'potion_heal' })).toBeNull();

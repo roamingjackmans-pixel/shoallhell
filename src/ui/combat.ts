@@ -8,14 +8,16 @@ import { DEFEAT_QUIPS, DEFEAT_TITLES } from '../data/story';
 import { chartLine } from '../draw/elements';
 import { hexDist, key, los, unitAt } from '../game/grid';
 import type { Match } from '../game/match';
-import { aoeTiles, attackOptions, cardDef, heroCard, heroPrompt, moveOptions, nameOf, objectiveText, pushOptions } from '../game/rules';
-import type { CombatState, Elem, HeroUnit, Step, Unit } from '../game/types';
+import { aoeTiles, attackOptions, cardDef, heroCard, heroPrompt, placing, startOptions, moveOptions, nameOf, objectiveText, pushOptions } from '../game/rules';
+import type { CombatState, Elem, HeroUnit, Mod, Step, Unit } from '../game/types';
+import { modLabel } from '../game/mods';
 import { ELEMS } from '../game/types';
 import { Board } from '../render/board';
 import { abilityEl, cardEl, condName, stepText } from './cardView';
 import { clear, h, modal, toast } from './dom';
 import { describeTile } from './tileInfo';
 import { statsEl } from './stats';
+import { playChime } from './sound';
 
 const EL_GLYPH: Record<Elem, string> = { fire: '🔥', magic: '✦', void: '◐', holy: '☀' };
 const EL_COLOR: Record<Elem, string> = { fire: 'var(--fire)', magic: 'var(--magic)', void: 'var(--void)', holy: 'var(--holy)' };
@@ -37,6 +39,8 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   hud.append(top, track, strip, logbox, inspect, handbar, banner);
 
   let viewHero: string | null = null;
+  /** lost cards chosen for a Recover step */
+  let recoverPick: string[] = [];
   let localPick: string[] = [];
   let lastPhaseRound = '';
   let ended = false;
@@ -58,12 +62,21 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   board.handlers = {
     onDrop: (uid, x, y) => {
       const s = match.state;
+      // before the first round: drop your hero on a free start hex
+      if (placing(s)) {
+        if (isMine(s, uid) && board.hl.move?.has(key(x, y))) send({ t: 'place', uid, x, y });
+        return;
+      }
       const p = heroPrompt(s);
       if (!p || p.uid !== uid || p.kind !== 'step') return;
       if (p.step?.t === 'move' || p.step?.t === 'teleport') send({ t: 'move', uid, x, y });
     },
     onTile: (x, y) => {
       const s = match.state;
+      if (placing(s)) {
+        if (viewHero && isMine(s, viewHero) && board.hl.move?.has(key(x, y))) send({ t: 'place', uid: viewHero, x, y });
+        return;
+      }
       // choosing where a pushed enemy goes
       if (s.pushQ?.length && s.heroTurn && isMine(s, s.heroTurn.uid)) {
         if (board.hl.push?.has(key(x, y))) send({ t: 'push', uid: s.heroTurn.uid, x, y });
@@ -131,6 +144,15 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     board.hl = {};
     const slot = s.order[s.turnIdx];
     board.focusUid = s.phase === 'turns' && slot ? slot.who : null;
+    // before the first round: the free start hexes, for the hero you are looking at
+    if (placing(s)) {
+      const hero = viewHero ? s.units.find((u) => u.uid === viewHero) : undefined;
+      if (hero && isMine(s, hero.uid)) {
+        board.hl.move = new Set(startOptions(s).map(([x, y]) => key(x, y)));
+        board.hl.draggable = hero.uid;
+      }
+      return;
+    }
     const p = heroPrompt(s);
     if (!p || !isMine(s, p.uid) || s.pending) return;
     if (s.pushQ?.length) {
@@ -320,6 +342,87 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   }
 
   // ---------------------------------------------------------------- hand / prompts
+  /** Items that return discards: the player picks which ones (up to the item's number), then confirms. */
+  function chooseDiscards(hero: HeroUnit, itemId: string): void {
+    const d = ITEMS[itemId]!;
+    const n = d.fx.recover ?? 0;
+    let pick: string[] = [];
+    const grid = h('div.row.wrap', { style: { gap: '6px', justifyContent: 'center' } });
+    const go = h('button.primary', {}, '') as HTMLButtonElement;
+    const draw = (): void => {
+      grid.replaceChildren(
+        ...hero.discard.map((c) => {
+          const el = cardEl(heroCard(hero, c), { small: true });
+          el.classList.add('pick');
+          if (pick.includes(c)) el.classList.add('picked');
+          el.addEventListener('click', () => {
+            pick = pick.includes(c) ? pick.filter((x) => x !== c) : pick.length < n ? [...pick, c] : pick;
+            draw();
+          });
+          return el;
+        }),
+      );
+      go.textContent = pick.length ? `Use ${d.name}: get back ${pick.length} card${pick.length > 1 ? 's' : ''}` : `Choose up to ${n}`;
+      go.disabled = !pick.length;
+    };
+    go.onclick = () => {
+      close();
+      send({ t: 'item', uid: hero.uid, item: itemId, cards: pick });
+    };
+    draw();
+    const close = modal(
+      h(
+        'div.col',
+        { style: { width: 'min(860px, 92vw)', gap: '10px', alignItems: 'center' } },
+        h('h2', { style: { margin: 0 } }, `${d.icon ?? ''} ${d.name}`),
+        h('div.dim', `Choose up to ${n} card${n > 1 ? 's' : ''} from your discard pile to get back into your hand.`),
+        grid,
+        h('div.row', go, h('button', { onclick: () => close() }, 'Cancel')),
+      ),
+    );
+  }
+
+  /** The hero's attack modifier deck: cards left to draw and the discard, grouped and counted. */
+  function modsModal(hero: HeroUnit): void {
+    const modClass = (m: Mod): string =>
+      m.temp === 'bless' ? 'bless' : m.temp === 'curse' ? 'curse' : m.mult === 'x2' ? 'crit' : m.mult === 'null' ? 'miss' : m.v > 0 ? 'plus' : m.v < 0 ? 'minus' : 'zero';
+    const ORDER = ['bless', 'crit', 'plus', 'zero', 'minus', 'miss', 'curse'];
+    const grid = (mods: Mod[], empty: string): HTMLElement => {
+      if (!mods.length) return h('div.small.dim', empty);
+      const groups = new Map<string, { m: Mod; n: number }>();
+      for (const m of mods) {
+        const k = modLabel(m);
+        const g = groups.get(k);
+        if (g) g.n++;
+        else groups.set(k, { m, n: 1 });
+      }
+      const list = [...groups.entries()].sort((a, b) => ORDER.indexOf(modClass(a[1].m)) - ORDER.indexOf(modClass(b[1].m)) || b[1].m.v - a[1].m.v);
+      return h(
+        'div.modgrid',
+        list.map(([label, g]) => h(`div.modcard.${modClass(g.m)}`, { title: g.m.roll ? 'Rolling: draw another card and add it' : '' }, h('div.modlabel', label), h('div.modcount', `${g.n} card${g.n === 1 ? '' : 's'}`))),
+      );
+    };
+    const left = hero.mods;
+    const pct = (n: number): string => (left.length ? `${Math.round((n / left.length) * 100)}%` : '—');
+    const crits = left.filter((m) => m.mult === 'x2' || m.temp === 'bless').length;
+    const misses = left.filter((m) => m.mult === 'null' || m.temp === 'curse').length;
+    const reshuffle = hero.modDiscard.some((m) => m.mult);
+    modal(
+      h(
+        'div.col',
+        { style: { width: 'min(640px, 92vw)', gap: '10px' } },
+        h('h2', { style: { margin: 0 } }, `${hero.name}'s modifier deck`),
+        h('div.small.dim', `${left.length} left to draw · ${hero.modDiscard.length} drawn · chance of ×2 ${pct(crits)} · chance of ×0 ${pct(misses)}`),
+        h('h3', { style: { margin: 0 } }, `Left to draw (${left.length})`),
+        grid(left, 'Nothing left: the discard is shuffled back in on the next draw.'),
+        h('h3', { style: { margin: 0 } }, `Drawn (${hero.modDiscard.length})`),
+        grid(hero.modDiscard, 'Nothing drawn yet.'),
+        reshuffle ? h('div.small.accent', 'A ×2 or ×0 has been drawn: the whole deck is shuffled at the end of this round.') : h('div.small.dim', 'The deck is shuffled at the end of a round in which a ×2 or ×0 was drawn.'),
+        h('div.tiny.dim', 'Bless (×2) and Curse (×0) cards leave the game once drawn. Rolling cards (↻) draw another card and add it.'),
+      ),
+    );
+  }
+
   function pileButton(hero: HeroUnit, label: string, cards: string[]): HTMLElement {
     return h(
       'button.tiny',
@@ -346,7 +449,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         const cur = s.heroTurn?.cur;
         const moving = !!cur && cur.steps[cur.step]?.t === 'move';
         const notNow = d.when === 'move' && !moving;
-        return h('button.tiny', { disabled: d.use === 'passive' || it.state !== 'ready' || !myTurn || notNow, title: `${d.name}: ${d.text} (${d.use})${notNow ? ' · use it while moving' : ''}`, onclick: () => send({ t: 'item', uid: hero.uid, item: it.id }) }, `${d.name}${it.state !== 'ready' ? ' ✓' : ''}`);
+        return h('button.tiny', { disabled: d.use === 'passive' || it.state !== 'ready' || !myTurn || notNow, title: `${d.name}: ${d.text} (${d.use})${notNow ? ' · use it while moving' : ''}`, onclick: () => (d.fx.recover && hero.discard.length ? chooseDiscards(hero, it.id) : send({ t: 'item', uid: hero.uid, item: it.id })) }, `${d.name}${it.state !== 'ready' ? ' ✓' : ''}`);
       }),
       usable.length ? null : null,
     );
@@ -404,7 +507,14 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     const prompt = h('div.prompt');
     const row = h('div.handrow');
     handbar.append(prompt, row);
-    const piles = h('span.row', { style: { gap: '4px' } }, pileButton(hero, 'Discard', hero.discard), pileButton(hero, 'Lost', hero.lost), hero.active.length ? pileButton(hero, 'Active', hero.active.map((a) => a.card)) : null);
+    const piles = h(
+      'span.row',
+      { style: { gap: '4px' } },
+      pileButton(hero, 'Discard', hero.discard),
+      pileButton(hero, 'Lost', hero.lost),
+      hero.active.length ? pileButton(hero, 'Active', hero.active.map((a) => a.card)) : null,
+      h('button.tiny', { title: 'Your attack modifier deck: what can still be drawn, and what has been drawn', onclick: () => modsModal(hero) }, `🂠 Modifiers (${hero.mods.length})`),
+    );
 
     if (hero.exhausted) {
       prompt.append(h('span.what', hero.escaped ? `${hero.name} escaped.` : `${hero.name} is exhausted.`), h('span.dim', 'The union fights on without them.'));
@@ -417,6 +527,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           hero.longRest ? restBanner(`${hero.name} is LONG RESTING this round`, 'No cards this round. Initiative 99, so they go last: then heal 2, refresh spent items, and choose one discarded card to lose. The rest come back to the hand.') : h('span.what', `${hero.name} is ready: ${hero.picked.map((c) => cardDef(c).name).join(' + ')}.`),
           h('button', { onclick: () => send({ t: 'unready', uid: hero.uid }) }, 'Change'),
           waitingText(s),
+          placing(s) ? h('span.small', { style: { color: '#7cc4ff' } }, 'You can still move to another blue start hex until the round begins.') : '',
         );
         for (const c of hero.picked) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
         return;
@@ -478,6 +589,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       localPick = localPick.filter((c) => hero.hand.includes(c));
       prompt.append(
         h('span.what', localPick.length === 0 ? `Pick two cards for ${hero.name}. The first sets initiative.` : localPick.length === 1 ? 'Pick one more card.' : 'Ready?'),
+        placing(s) ? h('span.small', { style: { color: '#7cc4ff' } }, `Choose where ${hero.name} starts: drag them to a blue hex or click one. Locked in when the first round begins.`) : '',
         h('button.primary', { disabled: localPick.length !== 2, onclick: () => (send({ t: 'pick', uid: hero.uid, cards: localPick }), (localPick = [])) }, localPick.length === 2 ? `Ready (initiative ${cardDef(localPick[0]!).init})` : 'Ready'),
         longRestBtn(false),
         shortRestBtn(false),
@@ -588,6 +700,26 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       const q = s.pushQ[0]!;
       const target = s.units.find((u) => u.uid === q.uid);
       prompt.append(h('span.what', `Push ${target ? nameOf(target) : 'the enemy'}: click an orange hex to choose where it goes${q.left > 1 ? ` (${q.left} spaces left)` : ''}.`));
+    } else if (p.step?.t === 'recover') {
+      // Recover: choose up to N cards from the lost pile to take back into the hand
+      const n = p.step.n;
+      recoverPick = recoverPick.filter((c) => hero.lost.includes(c));
+      prompt.append(
+        h('span.what', `Recover up to ${n}: click lost cards to take them back into your hand (${recoverPick.length}/${n} chosen).`),
+        h('button.primary', { onclick: () => { send({ t: 'recover', uid: hero.uid, cards: recoverPick }); recoverPick = []; } }, recoverPick.length ? `Recover ${recoverPick.length}` : 'Recover none'),
+      );
+      for (const c of hero.lost) {
+        const el = cardEl(heroCard(hero, c), { small: true });
+        el.classList.add('pick');
+        if (recoverPick.includes(c)) el.classList.add('picked');
+        el.addEventListener('click', () => {
+          recoverPick = recoverPick.includes(c) ? recoverPick.filter((x) => x !== c) : recoverPick.length < n ? [...recoverPick, c] : recoverPick;
+          render(match.state);
+        });
+        row.appendChild(el);
+      }
+      if (s.undo) prompt.appendChild(h('button', { onclick: () => send({ t: 'undo', uid: hero.uid }) }, '↶ Undo card'));
+      return;
     } else if (p.step) {
       prompt.append(
         h('span.what', stepPrompt(p.step, s, hero)),
@@ -796,11 +928,15 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   // ---------------------------------------------------------------- main render
   function render(s: CombatState): void {
     board.setState(s);
-    const tu = s.heroTurn?.uid ?? null;
+    const tu = s.heroTurn?.uid ? `${s.round}:${s.heroTurn.uid}` : null;
     if (tu !== lastTurnUid) {
       lastTurnUid = tu;
-      const hu = tu ? mine(s).find((x) => x.uid === tu) : undefined;
-      if (hu) board.ensureVisible(hu.x, hu.y);
+      const hu = s.heroTurn ? mine(s).find((x) => x.uid === s.heroTurn!.uid) : undefined;
+      if (hu) {
+        board.ensureVisible(hu.x, hu.y);
+        // your turn: ring (the sound is chosen in the hall's ⚙ Settings)
+        if (s.phase === 'turns') playChime();
+      }
     }
     highlights(s);
     renderTop(s);

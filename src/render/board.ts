@@ -214,7 +214,15 @@ export class Board {
       }
       if (!d.path.length) [d.px, d.py] = hexPx(u.x, u.y);
     }
-    if (!this.camFitted) this.fit();
+    if (!this.camFitted) {
+      this.fit();
+      // choosing start hexes: make sure they are in view above the hand
+      if (s.round === 1 && s.phase === 'select' && s.starts?.length) {
+        const cx = Math.round(s.starts.reduce((n, [x]) => n + x, 0) / s.starts.length);
+        const cy = Math.round(s.starts.reduce((n, [, y]) => n + y, 0) / s.starts.length);
+        this.centerOn(cx, cy);
+      }
+    }
     else if (s.map.rooms.filter((r) => r.revealed).length > before && before > 0) {
       // a door opened: show the new room
       const r = s.map.rooms.filter((x) => x.revealed).slice(-1)[0];

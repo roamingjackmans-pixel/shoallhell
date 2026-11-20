@@ -120,28 +120,36 @@ export function blocksWalk(c: string, canOpenDoors: boolean): boolean {
   return c === '#' || c === ' ' || c === 'o';
 }
 
+/** Corners of a pointy-top hex (unit size), pulled in a little so they stay inside the hex. */
+const CORNERS: [number, number][] = [0, 1, 2, 3, 4, 5].map((i) => {
+  const a = (Math.PI / 180) * (60 * i - 30);
+  return [Math.cos(a) * 0.9, Math.sin(a) * 0.9];
+});
+
 /**
- * Line of sight between hex centres: walls and closed doors block, obstacles and figures do not. The line is
- * nudged a hair to each side; sight exists if either nudged line is clear (so grazing a wall corner is fine).
+ * Line of sight, Gloomhaven style: walls and closed doors block, obstacles and figures do not. There is sight if any
+ * straight line from a point of the attacker's hex (its centre or a corner) to a point of the target's hex (centre or
+ * corner) crosses no wall. Centre to centre is tried first (the common, cheap case).
  */
 export function los(map: MapData, ax: number, ay: number, bx: number, by: number): boolean {
   if (ax === bx && ay === by) return true;
   const [px, py] = hexCenter(ax, ay);
   const [qx, qy] = hexCenter(bx, by);
-  const n = hexDist(ax, ay, bx, by) * 6;
-  const clear = (ox: number, oy: number): boolean => {
+  const n = hexDist(ax, ay, bx, by) * 8;
+  const clear = (x0: number, y0: number, x1: number, y1: number): boolean => {
     for (let i = 1; i < n; i++) {
       const t = i / n;
-      const [hx, hy] = pixelToHex(px + (qx - px) * t + ox, py + (qy - py) * t + oy);
+      const [hx, hy] = pixelToHex(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
       if ((hx === ax && hy === ay) || (hx === bx && hy === by)) continue;
       if (isWallish(tile(map, hx, hy))) return false;
     }
     return true;
   };
-  const len = Math.hypot(qx - px, qy - py) || 1;
-  const nx = (-(qy - py) / len) * 0.02;
-  const ny = ((qx - px) / len) * 0.02;
-  return clear(nx, ny) || clear(-nx, -ny);
+  if (clear(px, py, qx, qy)) return true;
+  const from: [number, number][] = [[px, py], ...CORNERS.map(([dx, dy]): [number, number] => [px + dx, py + dy])];
+  const to: [number, number][] = [[qx, qy], ...CORNERS.map(([dx, dy]): [number, number] => [qx + dx, qy + dy])];
+  for (const [x0, y0] of from) for (const [x1, y1] of to) if (clear(x0, y0, x1, y1)) return true;
+  return false;
 }
 
 export function unitAt(s: CombatState, x: number, y: number): Unit | undefined {

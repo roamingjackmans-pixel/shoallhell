@@ -33,7 +33,7 @@ import type {
   TurnSlot,
   Unit,
 } from './types';
-import { ELEMS, NEGATIVE } from './types';
+import { DIFFICULTY_HP, ELEMS, NEGATIVE, type Difficulty } from './types';
 
 export interface HeroSetup {
   owner: string;
@@ -55,6 +55,10 @@ export interface HeroSetup {
 export type Intent =
   | { t: 'pick'; uid: string; cards: string[] }
   | { t: 'longRest'; uid: string }
+  /** before the first round: move to another free start hex */
+  | { t: 'place'; uid: string; x: number; y: number }
+  /** a Recover step: these lost cards (up to its number) go back to the hand */
+  | { t: 'recover'; uid: string; cards: string[] }
   | { t: 'shortRest'; uid: string }
   | { t: 'restKeep'; uid: string }
   | { t: 'restReroll'; uid: string }
@@ -63,7 +67,8 @@ export type Intent =
   | { t: 'move'; uid: string; x: number; y: number }
   | { t: 'target'; uid: string; target?: string; x?: number; y?: number }
   | { t: 'skip'; uid: string }
-  | { t: 'item'; uid: string; item: string }
+  /** cards: for items that return discards, the ones chosen to come back */
+  | { t: 'item'; uid: string; item: string; cards?: string[] }
   | { t: 'negate'; uid: string; choice: string }
   | { t: 'restLose'; uid: string; card: string }
   | { t: 'undo'; uid: string }
@@ -130,11 +135,11 @@ function initOf(s: CombatState, u: Unit): number {
 
 // ------------------------------------------------------------------ setup
 
-export function createCombat(sc: ScenarioDef, setups: HeroSetup[], level: number, seed: number): CombatState {
-  const g = generate({ scenario: sc, heroes: setups.length, level, seed });
+export function createCombat(sc: ScenarioDef, setups: HeroSetup[], level: number, seed: number, difficulty: Difficulty = 'normal'): CombatState {
+  const g = generate({ scenario: sc, heroes: setups.length, level, seed, difficulty });
   const s: CombatState = {
     v: 1,
-    scenario: { id: sc.id, name: sc.name, objective: sc.objective, level, seed, depth: sc.depth },
+    scenario: { id: sc.id, name: sc.name, objective: sc.objective, level, seed, depth: sc.depth, difficulty },
     map: g.map,
     units: [],
     pickups: g.pickups,
@@ -158,6 +163,7 @@ export function createCombat(sc: ScenarioDef, setups: HeroSetup[], level: number
     types: [],
     destroyed: 0,
     monsterCursor: 0,
+    starts: g.starts.map(([x, y]) => [x, y] as [number, number]),
   };
   setups.forEach((h, i) => {
     const [x, y] = g.starts[i] ?? g.starts[0]!;
@@ -240,7 +246,10 @@ function nextNum(s: CombatState, id: string): number {
 
 function spawnMonster(s: CombatState, id: string, x: number, y: number, elite: boolean, summoned = false): MonsterUnit {
   const def = monsterDef(id);
-  const stat = monsterStat(def, s.scenario.level, elite, heroes(s).length);
+  const base = monsterStat(def, s.scenario.level, elite, heroes(s).length);
+  // difficulty: Normal and Hardcore scale monster health
+  const mult = s.scenario.difficulty ? DIFFICULTY_HP[s.scenario.difficulty] : 1;
+  const stat = { ...base, hp: Math.max(1, Math.round(base.hp * mult)) };
   const m: MonsterUnit = {
     uid: `m${++s.fxId}`,
     kind: 'monster',
@@ -531,10 +540,12 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
     if (m.shield) a.shield += m.shield;
     if (m.heal) healUnit(s, a, m.heal);
   }
-  const label = drawn.shown.map(modLabel).join(' / ');
+  const tilt = Math.sign(adv);
+  const why = o.ranged && hexDist(a.x, a.y, t.x, t.y) === 1 ? ' (ranged at an adjacent target)' : '';
+  const label = (tilt < 0 ? `disadvantage${why}: ` : tilt > 0 ? 'advantage: ' : '') + drawn.shown.map(modLabel).join(' / ');
   if (missed) {
-    log(s, `${nameOf(a)} attacks ${nameOf(t)}: ${label}. Miss!`, a.kind === 'monster' ? 'monster' : 'hero');
-    fx(s, { kind: 'miss', uid: t.uid, text: 'MISS', color: '#c0c0c0' });
+    log(s, `${nameOf(a)} attacks ${nameOf(t)} for ${base} (${label}) → ${base} ×0 = 0 damage.`, a.kind === 'monster' ? 'monster' : 'hero');
+    fx(s, { kind: 'miss', uid: t.uid, text: `${base} ×0 = 0`, color: '#c0c0c0' });
     fx(s, { kind: o.ranged ? 'shot' : 'swing', uid: a.uid, to: t.uid });
     return 0;
   }
@@ -1197,6 +1208,8 @@ export function stepNeedsInput(s: CombatState, h: HeroUnit, st: Step): boolean {
       return enemiesOf(s, h).some((e) => inRange(s, h, e, st.range));
     case 'teleport':
       return true;
+    case 'recover':
+      return h.lost.length > 0;
     default:
       return false;
   }
@@ -1466,13 +1479,10 @@ function autoStep(s: CombatState, h: HeroUnit, st: Step): void {
       fx(s, { kind: 'text', uid: su.uid, text: def.name, color: '#9ce59c' });
       return;
     }
-    case 'recover': {
-      const n = Math.min(st.n, h.discard.length);
-      const back = h.discard.splice(h.discard.length - n, n);
-      h.hand.push(...back);
-      log(s, `${h.name} recovers ${back.map((c) => cardDef(c).name).join(', ') || 'nothing'}.`, 'hero');
+    case 'recover':
+      // with lost cards the player chooses (the 'recover' intent); with none there is nothing to get back
+      log(s, `${h.name} has no lost cards to recover.`, 'info');
       return;
-    }
     case 'bless': {
       if (st.range === 0) addBless(s, h, h, st.n);
       return;
@@ -1630,6 +1640,8 @@ function undoHalf(s: CombatState, h: HeroUnit): string | null {
   if (!s.undo) return 'Nothing to take back: you have already acted on that card.';
   const before = JSON.parse(s.undo) as CombatState;
   const { log: keepLog, fx: keepFx, fxId, logSeq } = s;
+  // anything created since the snapshot goes too (e.g. an empty push queue), so the restore is exact
+  for (const k of Object.keys(s) as (keyof CombatState)[]) if (!(k in before) && k !== 'log' && k !== 'fx' && k !== 'fxId' && k !== 'logSeq' && k !== 'undo') delete s[k];
   Object.assign(s, before);
   s.logSeq = logSeq;
   s.log = keepLog;
@@ -1654,6 +1666,15 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
       h.longRest = false;
       h.ready = true;
       maybeStart(s);
+      return null;
+    }
+    case 'place': {
+      if (!placing(s)) return 'Start positions are locked once the first round begins.';
+      if (!startOptions(s).some(([x, y]) => x === i.x && y === i.y)) return 'Pick one of the free start hexes.';
+      const from: [number, number] = [h.x, h.y];
+      h.x = i.x;
+      h.y = i.y;
+      fx(s, { kind: 'move', uid: h.uid, path: [from, [h.x, h.y]] });
       return null;
     }
     case 'longRest': {
@@ -1760,7 +1781,7 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
       return null;
     }
     case 'item':
-      return useItem(s, h, i.item);
+      return useItem(s, h, i.item, i.cards);
     default:
       break;
   }
@@ -1812,6 +1833,19 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
       bump(h, i.basic ? 'basics' : 'halves');
       s.undo = snap;
       log(s, `${h.name} plays ${i.basic ? (i.half === 'top' ? 'a basic Attack 2' : 'a basic Move 2') : `${c.name} (${i.half === 'top' ? 'top' : 'bottom'})`}.`, 'hero');
+      runSteps(s, h);
+      return null;
+    }
+    case 'recover': {
+      const st = curStep(s);
+      if (!t.cur || st?.t !== 'recover') return 'Nothing to recover right now.';
+      const pick = [...new Set(i.cards)];
+      if (pick.length > st.n) return `Recover at most ${st.n}.`;
+      if (!pick.every((c) => h.lost.includes(c))) return 'Pick cards from your lost pile.';
+      h.lost = h.lost.filter((c) => !pick.includes(c));
+      h.hand.push(...pick);
+      log(s, pick.length ? `${h.name} recovers ${pick.map((c) => cardDef(c).name).join(' and ')} from the lost pile.` : `${h.name} recovers nothing.`, 'hero');
+      advanceStep(s, h);
       runSteps(s, h);
       return null;
     }
@@ -1959,7 +1993,7 @@ function maybeStart(s: CombatState): void {
   if (live.length && live.every((h) => h.ready)) startRound(s);
 }
 
-function useItem(s: CombatState, h: HeroUnit, id: string): string | null {
+function useItem(s: CombatState, h: HeroUnit, id: string, cards?: string[]): string | null {
   const it = h.items.find((x) => x.id === id);
   const def = ITEMS[id];
   if (!it || !def) return 'You don’t have that.';
@@ -1971,13 +2005,25 @@ function useItem(s: CombatState, h: HeroUnit, id: string): string | null {
   const e = def.fx;
   const cur = s.heroTurn?.cur;
   if (def.when === 'move' && (st?.t !== 'move' || !cur)) return 'Use it while moving.';
+  // returning discards: the player chooses which (nothing random)
+  let back: string[] = [];
+  if (e.recover) {
+    if (!h.discard.length && Object.keys(e).length === 1) return 'Your discard pile is empty.';
+    if (h.discard.length) {
+      if (!cards) return `Choose up to ${e.recover} discarded card${e.recover > 1 ? 's' : ''} to return.`;
+      back = [...new Set(cards)];
+      if (back.length > e.recover) return `Return at most ${e.recover}.`;
+      if (!back.every((c) => h.discard.includes(c))) return 'Pick cards from your discard pile.';
+    }
+  }
   if (e.move && cur) cur.movesLeft = (cur.movesLeft ?? 0) + e.move;
   if (e.jump && cur) cur.jump = true;
   if (e.cure) h.conds = h.conds.filter((c) => !NEGATIVE.includes(c));
   if (e.heal) healUnit(s, h, e.heal, h);
-  if (e.recover) {
-    const back = h.discard.splice(Math.max(0, h.discard.length - e.recover), e.recover);
+  if (back.length) {
+    h.discard = h.discard.filter((c) => !back.includes(c));
     h.hand.push(...back);
+    log(s, `${h.name} gets back ${back.map((c) => cardDef(c).name).join(' and ')}.`, 'hero');
   }
   if (e.shield) h.shield += e.shield;
   if (e.retaliate) {
@@ -2024,6 +2070,17 @@ export function heroPrompt(s: CombatState): { uid: string; step?: Step; kind: 'c
   if (!t.cur) return { uid: h.uid, kind: 'choose' };
   if (t.cur.elAsk) return { uid: h.uid, kind: 'element', step: t.cur.steps[t.cur.step]!, els: t.cur.elAsk };
   return { uid: h.uid, kind: 'step', step: t.cur.steps[t.cur.step]! };
+}
+
+/** Before the first round starts, heroes can still choose where they start. */
+export function placing(s: CombatState): boolean {
+  return s.round === 1 && s.phase === 'select' && !!s.starts?.length;
+}
+
+/** The free start hexes a hero can move to before the first round. */
+export function startOptions(s: CombatState): [number, number][] {
+  if (!placing(s)) return [];
+  return (s.starts ?? []).filter(([x, y]) => !unitAt(s, x, y));
 }
 
 /** A card as this hero has it: with their enhancement stickers applied. */

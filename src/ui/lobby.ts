@@ -211,12 +211,11 @@ export function lobbyScreen(root: HTMLElement, nav: LobbyNav, cs: CoopSession | 
       const level = scenarioLevel(
         all.map((x) => x.level),
         cs.chosen?.depth ?? 1,
-        k.difficulty,
       );
       const ready = !!cs.chosen && all.length > 0 && all.length <= 4 && !missing.length;
       panel.append(
         h('h3', { style: { margin: 0 } }, 'Next mission', h('span.small.dim', ` (from your campaign “${k.name}”)`)),
-        h('div.row.wrap', sel, cs.chosen ? h('span.small.dim', `Scenario level ${level}`) : ''),
+        h('div.row.wrap', sel, cs.chosen ? h('span.small.dim', `Scenario level ${level} · ${k.difficulty === 'hardcore' ? 'Hardcore' : 'Normal'}`) : ''),
         cs.chosen ? h('div.small.dim', cs.chosen.intro[0] ?? '') : '',
         missing.length ? h('div.small.dim', `Waiting for ${missing.join(', ')} to send their heroes…`) : '',
         h('button.primary.big', { disabled: !ready, onclick: () => nav.start(cs.chosen!, all, level) }, 'Start the mission'),

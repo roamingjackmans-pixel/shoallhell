@@ -417,7 +417,14 @@ export interface ScenarioRun {
   level: number;
   seed: number;
   depth: number;
+  /** the campaign's difficulty: Normal monsters have 15% less HP, Hardcore 30% more (older fights: unchanged) */
+  difficulty?: Difficulty;
 }
+
+export type Difficulty = 'normal' | 'hardcore';
+
+/** Monster HP multiplier for each difficulty. */
+export const DIFFICULTY_HP: Record<Difficulty, number> = { normal: 0.85, hardcore: 1.3 };
 
 export type Objective =
   | { kind: 'clear' }
@@ -463,6 +470,8 @@ export interface CombatState {
    * turn. Co-op guests receive '1' instead of the snapshot.
    */
   undo?: string | null;
+  /** the start hexes: heroes may move between the free ones until the first round begins */
+  starts?: [number, number][];
   /** the scenario goal was met this round: it is won once the round has played out (the text to win with) */
   goalMet?: string | null;
   /**

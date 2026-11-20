@@ -70,7 +70,7 @@ export function stepText(st: Step): string {
       return s ? `<b>Summon ${s.name}</b> <span class="sub">(${s.hp} HP${s.move ? `, Move ${s.move}` : ''}${s.atk ? `, Attack ${s.atk}${s.range ? ` R${s.range}` : ''}` : ''}${s.healer ? `, heals ${s.healer}` : ''})</span>` : 'Summon';
     }
     case 'recover':
-      return `<b>Recover ${st.n}</b> <span class="sub">discarded card${st.n > 1 ? 's' : ''}</span>`;
+      return `<b>Recover ${st.n}</b> <span class="sub">lost card${st.n > 1 ? 's' : ''} of your choice</span>`;
     case 'bless':
       return `<b>Bless ${st.n}</b>${st.range ? ` · ally within ${st.range}` : ' · self'}`;
     case 'curse':

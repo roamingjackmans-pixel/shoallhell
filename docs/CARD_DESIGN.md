@@ -35,7 +35,7 @@ reference deck). Types are in `src/game/types.ts`.
 | `summon(id)` | summon an ally (ids: `glow_turret`, `tin_helper`, `bellows_buddy`, `hound`, `pyre_wisp`, `intern`, `eel`, `moths`, `gary`) |
 | `recover(n)` | return n cards from discard to hand |
 | `bless(n, range)` | shuffle n Bless (×2) cards into an ally's modifier deck (range 0 = self) |
-| `curse(n, range)` | shuffle n Curse (miss) cards into the monster modifier deck |
+| `curse(n, range)` | shuffle n Curse (×0) cards into the monster modifier deck |
 | `tp(n)` | teleport to any empty space within n |
 | `xp(n)` | gain n XP when this half is played |
 | `P(kind, n, uses, text, cond?)` | lasting effect. kinds: `shield` (−n damage per attack against you, uses = attacks), `retaliate`, `atk` (+n to each of your attacks, uses = attacks), `move` (+n to each move), `drain` (heal n whenever you attack), `cond` (your attacks apply `cond`). `uses 0` = rest of the scenario |

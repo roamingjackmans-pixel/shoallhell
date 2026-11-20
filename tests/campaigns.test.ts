@@ -29,7 +29,7 @@ describe('campaigns', () => {
     expect(k.unlocked).toEqual(['1a', '1b']);
     expect(k.completed).toEqual(['1a']);
     expect(k.fund).toBe(15);
-    expect(k.difficulty).toBe('hard');
+    expect(k.difficulty).toBe('hardcore');
     expect(p.classes).toContain('cleric');
     expect(p.tasksDone).toEqual(['first_minutes']);
     // upgrading again changes nothing

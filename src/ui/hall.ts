@@ -51,6 +51,7 @@ import { clearResume, getResume } from '../resume';
 import { GAME_VERSION } from '../version';
 import { friendBadge, friendsModal, onFriendsChange } from './friends';
 import { inventoryEl } from './inventory';
+import { CHIMES, getChime, getVolume, playChime, setChime, setVolume } from './sound';
 
 export interface HallNav {
   play(sc: ScenarioDef, chars: Character[]): void;
@@ -113,6 +114,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     h('button', { title: 'Switch between your campaigns, or start a new one', onclick: () => campaignsModal() }, `📜 ${k.name} ▾`),
     s.mode === 'online' ? h('button', { onclick: () => friendsModal(nav) }, '👥 Friends', friendBadge()) : '',
     saveLabel,
+    h('button.tiny', { title: 'Difficulty and the turn chime', onclick: () => settingsModal() }, '⚙ Settings'),
     h('button.tiny', { onclick: () => accountModal(nav) }, s.mode === 'online' ? `👤 ${s.user.name}` : '👤 Offline'),
     h('span.tiny.dim', { title: 'Game version' }, `v${GAME_VERSION}`),
   );
@@ -754,23 +756,65 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     close = modal(content, () => hallScreen(root, nav));
   }
 
+  // ---------------------------------------------------------------- settings
+  function settingsModal(): void {
+    const body = h('div.col', { style: { width: 'min(520px, 92vw)', gap: '10px' } });
+    const draw = (): void => {
+      const chime = getChime();
+      const vol = h('input', { type: 'range', min: '0', max: '100', value: String(Math.round(getVolume() * 100)), style: { flex: '1' } }) as HTMLInputElement;
+      vol.addEventListener('change', () => (setVolume(Number(vol.value) / 100), playChime()));
+      body.replaceChildren(
+        h('h2', { style: { margin: 0 } }, '⚙ Settings'),
+        h('h3', { style: { margin: '4px 0 0' } }, `Difficulty for “${k.name}”`),
+        h(
+          'div.row.wrap',
+          { style: { gap: '8px' } },
+          (
+            [
+              ['normal', 'Normal', 'Monsters have 15% less health than they used to. The way the union is meant to go down.'],
+              ['hardcore', 'Hardcore', 'Monsters have 30% more health. For tenants who read the small print and signed anyway.'],
+            ] as const
+          ).map(([id, name, text]) =>
+            h(
+              `div.diffopt${k.difficulty === id ? '.on' : ''}`,
+              { onclick: () => ((k.difficulty = id), save(), draw()) },
+              h('b', name),
+              h('div.small.dim', text),
+            ),
+          ),
+        ),
+        h('div.tiny.dim', 'Each campaign has its own difficulty. It applies to missions started from now on, solo or hosted in co-op.'),
+        h('h3', { style: { margin: '8px 0 0' } }, 'Turn chime'),
+        h('div.small.dim', 'Plays when it becomes one of your heroes’ turn. Saved in this browser.'),
+        h(
+          'div.col',
+          { style: { gap: '4px' } },
+          CHIMES.map((c) =>
+            h(
+              `div.chimeopt${chime === c.id ? '.on' : ''}`,
+              h('label.grow', { style: { cursor: 'pointer' }, onclick: () => (setChime(c.id), playChime(c.id), draw()) }, `${chime === c.id ? '◉' : '○'} ${c.name}`),
+              c.id === 'off' ? '' : h('button.tiny', { title: 'Preview', onclick: () => playChime(c.id) }, '▶'),
+            ),
+          ),
+        ),
+        h('div.row', { style: { gap: '8px', alignItems: 'center' } }, h('span.small', 'Volume'), vol, h('button.tiny', { onclick: () => playChime() }, 'Test')),
+        h('button.primary', { onclick: () => close() }, 'Done'),
+      );
+    };
+    draw();
+    const close = modal(body, () => hallScreen(root, nav));
+  }
+
   function accountModal(n: HallNav): void {
     const old = h('input', { type: 'password', placeholder: 'Current password' }) as HTMLInputElement;
     const nw = h('input', { type: 'password', placeholder: 'New password (8+)' }) as HTMLInputElement;
     const msg = h('div.err');
-    const diff = h(
-      'div.row',
-      (['easy', 'normal', 'hard'] as const).map((d) => h(`button.tiny${k.difficulty === d ? '.on' : ''}`, { onclick: () => ((k.difficulty = d), save(), close(), accountModal(n)) }, d)),
-    );
     const close = modal(
       h(
         'div.col',
         { style: { width: 'min(460px, 90vw)' } },
         h('h2', s.mode === 'online' ? s.user.name : 'Offline play'),
         s.mode === 'online' ? h('div.small.dim', s.user.email) : h('div.small.dim', 'Saved in this browser only.'),
-        h('h3', 'Difficulty'),
-        diff,
-        h('div.small.dim', 'Easy: scenario level −1. Hard: +1.'),
         s.mode === 'online'
           ? h(
               'div.col',

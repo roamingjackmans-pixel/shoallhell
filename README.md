@@ -51,6 +51,21 @@ four players, with email + password accounts.
   10 / 30 / 60 damage with Shield) with three stages each. Each stage reached is a checkmark, and every three
   checkmarks earn an extra perk, on top of the one per level-up. They count the hero's lifetime stats; see
   `src/data/classTasks.ts`.
+- **Modifier deck viewer.** 🂠 Modifiers (next to Discard/Lost) shows, at any time in a mission, the cards left to
+  draw and the ones already drawn, grouped and counted, with the chance of a ×2 and of a ×0.
+- **Start hexes.** Every mission has six start hexes. Before the first round, drag your hero or click a blue hex
+  to choose where you start; positions lock when the round begins.
+- **Line of sight, Gloomhaven style.** You can see a hex if any line from your hex (centre or a corner) to it crosses
+  no wall; walls straight in the way still block. Obstacles and figures never block.
+- **Recover** takes back lost cards of your choice (up to the number on the card).
+- **Ranged monsters stand and shoot.** Their plain ranged attacks no longer move first, so you can walk up to a
+  shooter and make it attack with disadvantage. (Their Advance, lunge and reposition cards still move.)
+- **×0.** The modifier card that used to be called Miss is ×0: the log shows the damage, e.g. "3 ×0 = 0 damage".
+- **Ranged attacks at an adjacent target** have disadvantage (two modifier cards, the worse one counts); the log says so.
+- **Settings (⚙ in the hall).** Difficulty per campaign: *Normal* (monsters 15% less health, a quarter fewer hazard
+  hexes) or *Hardcore* (monsters 30% more health).
+  Turn chime: a sound when it becomes your hero's turn (bell, ding-dong, steam whistle, harp, gong, triangle,
+  kettle, or off) with volume, saved in the browser.
 - **Stats.** When a scenario ends, the results screen shows a full stats table: damage, hits and misses, kills,
   damage taken and blocked, healing, shields, elements, cards, rests, items, movement and loot, one column per
   hero plus the party total, with the best in each line highlighted. 📊 Stats shows the same table mid-fight.

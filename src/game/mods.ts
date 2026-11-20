@@ -64,9 +64,9 @@ export function heroDeck(perkSpecs: string[]): Mod[] {
 
 export function modLabel(m: Mod): string {
   if (m.temp === 'bless') return 'BLESS ×2';
-  if (m.temp === 'curse') return 'CURSE';
+  if (m.temp === 'curse') return 'CURSE ×0';
   if (m.mult === 'x2') return '×2';
-  if (m.mult === 'null') return 'MISS';
+  if (m.mult === 'null') return '×0';
   let s = (m.v >= 0 ? '+' : '') + m.v;
   if (m.roll) s = '↻ ' + s;
   if (m.cond) s += ' ' + m.cond;

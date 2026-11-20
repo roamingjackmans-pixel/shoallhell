@@ -8,7 +8,7 @@ import { TASKS, type StatKey } from '../data/tasks';
 import { CHECKS_PER_PERK, CLASS_TASKS, type ClassTask } from '../data/classTasks';
 import { enhBlocked, enhCost, type Enh, type EnhKind, type EnhMap } from './enhance';
 import type { HeroSetup } from './rules';
-import type { CombatState, HeroUnit, Objective } from './types';
+import type { CombatState, Difficulty, HeroUnit, Objective } from './types';
 
 export interface Character {
   id: string;
@@ -58,7 +58,8 @@ export interface Campaign {
   /** gold given to the Boiler in this campaign: every 100 raises prosperity */
   donated?: number;
   ending?: boolean;
-  difficulty: 'easy' | 'normal' | 'hard';
+  /** Normal: monsters have 15% less HP than before difficulties existed. Hardcore: 30% more. */
+  difficulty: Difficulty;
 }
 
 /**
@@ -152,13 +153,16 @@ export function upgradeProfile(raw: Profile): Profile {
     c.seenDepths = old.seenDepths ?? [];
     c.fund = old.fund ?? 0;
     if (old.ending) c.ending = true;
-    c.difficulty = old.difficulty ?? 'normal';
+    c.difficulty = (old.difficulty as string) === 'hard' ? 'hardcore' : 'normal';
     out.campaigns.push(c);
     out.active = c.id;
   }
   for (const k of out.campaigns) {
     const fresh = newCampaign(k.name);
     Object.assign(k, { ...fresh, ...k });
+    // the old Easy/Normal/Hard became Normal/Hardcore
+    const d = k.difficulty as string;
+    if (d !== 'normal' && d !== 'hardcore') k.difficulty = d === 'hard' ? 'hardcore' : 'normal';
     for (const c of k.characters) {
       c.hand ??= [];
       c.items ??= [];
@@ -357,11 +361,10 @@ export function choosePerk(c: Character, idx: number): boolean {
   return true;
 }
 
-/** Scenario level: half the party's average level, rounded up, plus depth and difficulty. */
-export function scenarioLevel(levels: number[], depth: number, difficulty: Campaign['difficulty']): number {
+/** Scenario level: half the party's average level, rounded up, plus depth. (Difficulty scales monster HP instead.) */
+export function scenarioLevel(levels: number[], depth: number): number {
   const avg = levels.reduce((a, b) => a + b, 0) / Math.max(1, levels.length);
-  const d = difficulty === 'easy' ? -1 : difficulty === 'hard' ? 1 : 0;
-  return Math.max(0, Math.min(7, Math.ceil(avg / 2) + Math.floor((depth - 1) / 3) + d));
+  return Math.max(0, Math.min(7, Math.ceil(avg / 2) + Math.floor((depth - 1) / 3)));
 }
 
 export function deepest(k: Campaign): number {

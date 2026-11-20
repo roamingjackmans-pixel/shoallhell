@@ -10,7 +10,7 @@ export interface ItemEffect {
   heal?: number;
   /** remove every negative condition */
   cure?: boolean;
-  /** return this many cards from the discard pile to the hand */
+  /** return up to this many discarded cards of the player's choice to the hand */
   recover?: number;
   shield?: number;
   retaliate?: number;
@@ -62,7 +62,7 @@ const I = (d: ItemDef): void => void (ITEMS[d.id] = d);
 // ---------------------------------------------------------------- Depth 1: the stairs
 I({ id: 'thermos', icon: '☕', name: 'Joe’s Spare Thermos', slot: 'small', cost: 15, use: 'spent', when: 'turn', depth: 1, text: 'Heal 3. It is mostly tea.', fx: { heal: 3 } });
 I({ id: 'potion_heal', icon: '🧪', name: 'Minor Glowen Tonic', slot: 'small', cost: 10, use: 'consumed', when: 'turn', depth: 1, text: 'Heal 3.', fx: { heal: 3 } });
-I({ id: 'potion_stamina', icon: '🍵', name: 'Strong Builder’s Tea', slot: 'small', cost: 15, use: 'consumed', when: 'turn', depth: 1, text: 'Return 2 cards from your discard pile to your hand.', fx: { recover: 2 } });
+I({ id: 'potion_stamina', icon: '🍵', name: 'Strong Builder’s Tea', slot: 'small', cost: 15, use: 'consumed', when: 'turn', depth: 1, text: 'Return up to 2 discarded cards of your choice to your hand.', fx: { recover: 2 } });
 I({ id: 'boots', icon: '👢', name: 'Wellies of Striding', slot: 'legs', cost: 20, use: 'spent', when: 'move', depth: 1, text: '+2 Move on one move.', fx: { move: 2 } });
 I({ id: 'leather', icon: '🦺', name: 'Boiler Suit', slot: 'body', cost: 20, use: 'spent', when: 'turn', depth: 1, text: 'Shield 1 this round.', fx: { shield: 1 } });
 I({ id: 'hardhat', icon: '⛑️', name: 'Hard Hat', slot: 'head', cost: 20, use: 'passive', depth: 1, text: '+2 maximum HP.', fx: { maxHp: 2 } });
@@ -110,7 +110,7 @@ I({ id: 'pressure_valve', icon: '♨️', name: 'Pressure Valve', slot: 'small',
 // ---------------------------------------------------------------- Depth 7
 I({ id: 'major_tonic', icon: '⚗️', name: 'Major Glowen Tonic', slot: 'small', cost: 45, use: 'consumed', when: 'turn', depth: 7, text: 'Heal 6 and remove every negative condition.', fx: { heal: 6, cure: true } });
 I({ id: 'void_lens', icon: '🔮', name: 'Void Lens Monocle', slot: 'head', cost: 50, use: 'spent', when: 'attack', depth: 7, text: '+1 Attack and Pierce 3 on your next attack.', fx: { atk: 1, pierce: 3 } });
-I({ id: 'rent_book', icon: '📕', name: 'Rent Book (Unpaid)', slot: 'small', cost: 45, use: 'consumed', when: 'turn', depth: 7, text: 'Return 3 cards from your discard pile to your hand.', fx: { recover: 3 } });
+I({ id: 'rent_book', icon: '📕', name: 'Rent Book (Unpaid)', slot: 'small', cost: 45, use: 'consumed', when: 'turn', depth: 7, text: 'Return up to 3 discarded cards of your choice to your hand.', fx: { recover: 3 } });
 I({ id: 'stilts', icon: '🦩', name: 'Wading Stilts', slot: 'legs', cost: 50, use: 'passive', depth: 7, text: 'Hazards and traps do not hurt you, and +1 maximum HP.', fx: { hazardProof: true, maxHp: 1 } });
 
 // ---------------------------------------------------------------- Depth 8
@@ -120,7 +120,7 @@ I({ id: 'pearl_charm', icon: '🦪', name: 'Black Pearl Charm', slot: 'head', co
 
 // ---------------------------------------------------------------- Depth 9: the bottom of the Shoal
 I({ id: 'glowen_heart', icon: '💚', name: 'Glowen Heart', slot: 'small', cost: 70, use: 'consumed', when: 'turn', depth: 9, text: 'Heal 8, Bless 1 and gain Strengthen.', fx: { heal: 8, bless: 1, self: ['strengthen'] } });
-I({ id: 'deed', icon: '📜', name: 'Deed to the Building', slot: 'small', cost: 75, use: 'consumed', when: 'turn', depth: 9, text: 'Gain Invisible and Regenerate, and return 2 discarded cards to your hand. Technically you own the place now.', fx: { self: ['invisible', 'regenerate'], recover: 2 } });
+I({ id: 'deed', icon: '📜', name: 'Deed to the Building', slot: 'small', cost: 75, use: 'consumed', when: 'turn', depth: 9, text: 'Gain Invisible and Regenerate, and return up to 2 discarded cards of your choice to your hand. Technically you own the place now.', fx: { self: ['invisible', 'regenerate'], recover: 2 } });
 I({ id: 'executioner_axe', icon: '🪓', name: 'The Executor’s Spare Axe', slot: 'hand', cost: 80, use: 'spent', when: 'attack', depth: 9, text: '+3 Attack and Wound on your next attack.', fx: { atk: 3, cond: ['wound'] } });
 
 export const ITEM_IDS = Object.keys(ITEMS);

@@ -31,7 +31,7 @@ const SECTIONS: [string, Row[]][] = [
       { label: 'Best single hit', get: n('bestHit'), total: 'max' },
       { label: 'Attacks made', get: n('attacks') },
       { label: 'Hits', get: n('hits') },
-      { label: 'Misses', get: n('misses'), low: true },
+      { label: '×0 drawn (no damage)', get: n('misses'), low: true },
       { label: 'Hit rate', get: (u) => ((u.stats.attacks ?? 0) ? Math.round(((u.stats.hits ?? 0) / u.stats.attacks!) * 100) : 0), total: 'none', fmt: (v) => `${v}%` },
       { label: '×2 and Bless drawn', get: n('crits') },
       { label: 'Enemies defeated', get: n('kills') },

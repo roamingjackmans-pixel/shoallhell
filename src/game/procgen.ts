@@ -43,7 +43,12 @@ export interface GenOpts {
   heroes: number;
   level: number;
   seed: number;
+  /** Normal: a quarter fewer hazard hexes than Hardcore */
+  difficulty?: 'normal' | 'hardcore';
 }
+
+/** Share of hazard hexes removed on Normal. */
+export const NORMAL_HAZARD_CUT = 0.25;
 
 const CANVAS_W = 90;
 const CANVAS_H = 80;
@@ -229,12 +234,13 @@ export function generate(o: GenOpts): Generated {
   const floorsOf = (i: number): [number, number][] => roomTiles[i]!.filter(([x, y]) => grid[y]![x] === '.');
   const nearDoor = (x: number, y: number, d = 1): boolean => doors.some(([dx, dy]) => hexDist(dx, dy, x, y) <= d);
 
-  // hero starts: a tight group in room 0, as far from its door as possible
+  // hero starts: six hexes in a tight group in room 0, as far from its door as possible (players pick among them
+  // before the first round)
   const exit0 = doors[0] ?? roomTiles[0]![0]!;
   const far0 = floorsOf(0).sort((a, b) => hexDist(b[0], b[1], exit0[0], exit0[1]) - hexDist(a[0], a[1], exit0[0], exit0[1]))[0]!;
   const starts = floorsOf(0)
     .sort((a, b) => hexDist(a[0], a[1], far0[0], far0[1]) - hexDist(b[0], b[1], far0[0], far0[1]))
-    .slice(0, 4);
+    .slice(0, 6);
   const reserved = new Set(starts.map(([x, y]) => key(x, y)));
 
   // connectivity over walkable hexes (obstacles block)
@@ -297,6 +303,13 @@ export function generate(o: GenOpts): Generated {
         placed++;
       }
     }
+  }
+
+  // Normal difficulty: a quarter of the hazard hexes become plain floor
+  if (o.difficulty === 'normal') {
+    const hz: [number, number][] = [];
+    for (let y = 0; y < grid.length; y++) for (let x = 0; x < grid[y]!.length; x++) if (grid[y]![x] === '~') hz.push([x, y]);
+    for (const [x, y] of shuffle(st, hz).slice(0, Math.round(hz.length * NORMAL_HAZARD_CUT))) grid[y]![x] = '.';
   }
 
   // exit for escape scenarios: the last room's hex farthest from its entry door

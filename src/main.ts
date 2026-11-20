@@ -133,7 +133,6 @@ function playSolo(sc: ScenarioDef, chars: Character[]): void {
   const level = scenarioLevel(
     chars.map((c) => c.level),
     sc.depth,
-    camp(s.profile).difficulty,
   );
   show(() =>
     storyScreen(
@@ -142,7 +141,7 @@ function playSolo(sc: ScenarioDef, chars: Character[]): void {
       sc.intro,
       () => {
         const setups = chars.map((c) => heroSetup(c, s.user.id));
-        const state = createCombat(sc, setups, level, seed());
+        const state = createCombat(sc, setups, level, seed(), camp(s.profile).difficulty);
         const match = new Match(sc, state, s.user.id, 'solo', null);
         runMatch(match, () => hall());
       },
@@ -370,7 +369,7 @@ function hostStart(sc: ScenarioDef, setups: HeroSetup[], level: number): void {
   const c = cs;
   if (!c) return;
   const s = session!;
-  const state = createCombat(sc, setups.slice(0, 4), level, seed());
+  const state = createCombat(sc, setups.slice(0, 4), level, seed(), camp(s.profile).difficulty);
   c.inMatch = true;
   c.coop.toGuests({ type: 'start', sc, state });
   const match = new Match(sc, state, s.user.id, 'host', c.coop);

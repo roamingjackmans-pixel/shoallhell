@@ -74,7 +74,9 @@ function convert(e: DjEnemy): MonsterDef {
     const j = (hashStr(e.id + name) % 13) - 6;
     const shot = pattern === 'projectile' || pattern === 'beam';
     if (kind === 'normal') {
-      abilities.push({ name, init: clampInit(init0 + j), move: base.move ? 0 : null, atk: 0, ...(shot && !ranged ? { range: 3 } : {}), ...(cond ? { cond } : {}) });
+      // a plain ranged attack is taken from where the monster stands: close in on a shooter to give it disadvantage
+      const stands = ranged || shot;
+      abilities.push({ name, init: clampInit(init0 + j), move: base.move && !stands ? 0 : null, atk: 0, ...(shot && !ranged ? { range: 3 } : {}), ...(cond ? { cond } : {}) });
     } else if (kind === 'red') {
       const lunge = pattern === 'line';
       abilities.push({
@@ -116,7 +118,7 @@ function convert(e: DjEnemy): MonsterDef {
   const pads: MonsterAbility[] = [
     { name: 'Advance', init: clampInit(init0 - 4), move: base.move ? 1 : null, atk: -1 },
     { name: 'Hold the Line', init: clampInit(init0 + 8), move: base.move ? -1 : null, atk: 0, shield: 1 },
-    { name: 'Press', init: clampInit(init0 + 2), move: base.move ? 0 : null, atk: 1 },
+    { name: 'Press', init: clampInit(init0 + 2), move: base.move && !ranged ? 0 : null, atk: 1 },
   ];
   for (const p of pads) if (abilities.length < 5) abilities.push(p);
   return {
