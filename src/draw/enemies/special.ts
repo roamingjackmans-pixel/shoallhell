@@ -182,8 +182,13 @@ registerDraw('the_instructor', (ctx, s) => {
 });
 
 // ------------------------------------------------------------------ Gary: a hooded pedlar under an enormous pack
-registerDraw('gary', (ctx, s) => {
-  drawCart(ctx, s.x + 50, s.y - 4);
+// 'gary' is Dungeon Joe's Gary with his cart beside him; 'gary_pedlar' (Shoallhell only) is the same Gary without the
+// cart, for when he is summoned into a fight.
+registerDraw('gary', (ctx, s) => drawGary(ctx, s, true));
+registerDraw('gary_pedlar', (ctx, s) => drawGary(ctx, s, false));
+
+function drawGary(ctx: CanvasRenderingContext2D, s: Parameters<Parameters<typeof registerDraw>[1]>[1], cart: boolean): void {
+  if (cart) drawCart(ctx, s.x + 50, s.y - 4);
   const r = s.r * s.scale * 0.8;
   const f = frame(s);
   const b = Math.sin(s.t * 1.6) * 0.8;
@@ -229,4 +234,4 @@ registerDraw('gary', (ctx, s) => {
     const look = Math.sin(s.t * 0.9) > 0.6 ? 1 : Math.sin(s.t * 0.9) < -0.6 ? -1 : 0;
     eyes2(ctx, f, fx2 + look * r * 0.05, hy - r * 0.06, r * 0.09, Math.max(1.2, r * 0.05), OUTLINE, 0);
   }
-});
+}

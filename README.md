@@ -19,7 +19,7 @@ four players, with email + password accounts.
 - **Rests.** *Short rest* any time between rounds (even with an empty hand): all discards come back except one
   random card, which is lost; you may pay 1 HP once to keep that card and lose a different random one instead.
   *Long rest* (when you are out of cards, or whenever you like): it takes your turn, heals 2, refreshes items, and
-  you choose which discarded card to lose. Run out entirely and you are exhausted. Any attack that would knock you out,
+  you choose which discarded card to lose (any time once you have chosen to rest; on your turn one click confirms). Run out entirely and you are exhausted. Any attack that would knock you out,
   or that does half your max HP or more, can be avoided by losing a card of your choice from your hand, or two of
   your choice from your discard pile (you confirm before anything happens).
 - **Hexes and drag and drop.** The board is a hex grid. On a move, drag your hero up to the number of hexes the card

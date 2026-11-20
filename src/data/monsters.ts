@@ -318,7 +318,7 @@ export const SUMMONS: Record<string, SummonDef> = {
   intern: { id: 'intern', name: 'Unpaid Intern', draw: 'citadel_butler', radius: 18, hp: 4, move: 2, atk: 1, range: 0, cond: ['muddle'] },
   eel: { id: 'eel', name: 'Pet Fuse Eel', draw: 'sewers_eel', radius: 16, hp: 3, move: 3, atk: 2, range: 0, cond: ['disarm'] },
   moths: { id: 'moths', name: 'Lamp Moths', draw: 'reliquary_rime_moth', radius: 9, hp: 2, move: 4, atk: 1, range: 0, cond: ['immobilize'] },
-  gary: { id: 'gary', name: 'Gary', draw: 'gary', radius: 22, hp: 7, move: 0, atk: 0, range: 0, shield: 1, healer: 2 },
+  gary: { id: 'gary', name: 'Gary', draw: 'gary_pedlar', radius: 22, hp: 7, move: 0, atk: 0, range: 0, shield: 1, healer: 2 },
 };
 
 /** Which monster a boss's "summon" ability brings, and what a regular monster's "summon help" brings (its own zone's fodder). */

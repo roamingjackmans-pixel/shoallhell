@@ -8,7 +8,7 @@ import { DEFEAT_QUIPS, DEFEAT_TITLES } from '../data/story';
 import { chartLine } from '../draw/elements';
 import { hexDist, key, los, unitAt } from '../game/grid';
 import type { Match } from '../game/match';
-import { aoeTiles, attackOptions, cardDef, heroCard, heroPrompt, placing, startOptions, moveOptions, nameOf, objectiveText, pushOptions } from '../game/rules';
+import { aoeTiles, attackOptions, cardDef, heroCard, heroPrompt, initOf, placing, startOptions, moveOptions, nameOf, objectiveText, pushOptions, summonActions } from '../game/rules';
 import type { CombatState, Elem, HeroUnit, Mod, Step, Unit } from '../game/types';
 import { modLabel } from '../game/mods';
 import { ELEMS } from '../game/types';
@@ -31,6 +31,16 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   screen.appendChild(hud);
   const top = h('div.topbar');
   const track = h('div.track');
+  // hover a monster's or summon's badge in the turn order: what it does this round (the badges are redrawn every
+  // beat, so this listens on the track, which stays)
+  const trackHover = (slot: HTMLElement | null): void => {
+    const s = match.state;
+    const kind = slot?.dataset.kind;
+    hoverMonsterType = kind === 'monster' ? slot!.dataset.who! : null;
+    showInspect(s, kind === 'summon' ? slot!.dataset.who! : null);
+  };
+  track.addEventListener('mouseover', (e) => trackHover((e.target as HTMLElement).closest<HTMLElement>('.slot[data-kind]')));
+  track.addEventListener('mouseleave', () => trackHover(null));
   const strip = h('div.monstrip');
   const logbox = h('div.logbox');
   const inspect = h('div.inspect', { style: { display: 'none' } });
@@ -44,6 +54,12 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   /** lost cards chosen for a Recover step */
   let recoverPick: string[] = [];
   let localPick: string[] = [];
+  /** cards in initiative order, lowest (fastest) first: how every hand and pile is laid out */
+  const byInit = (ids: readonly string[]): string[] => [...ids].sort((a, b) => cardDef(a).init - cardDef(b).init || a.localeCompare(b));
+  /** a hero tab clicked on purpose during card picking (round:phase): don't jump away from it */
+  let viewPinned: string | null = null;
+  /** the discarded card each long-resting hero has chosen to lose, picked any time before their rest turn */
+  const restPick: Record<string, string> = {};
   /** the half each hero plans to play this round (right-click while picking): only on this screen, never sent */
   const plans: Record<string, { round: number; card: string; half: 'top' | 'bot' }> = {};
 
@@ -256,7 +272,9 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       }
       else if (o.kind === 'summon') {
         const u = s.units.find((x) => x.uid === o.who);
-        label = u ? nameOf(u) : 'Summon';
+        const d = u?.kind === 'summon' ? SUMMONS[u.summon] : undefined;
+        const act = d ? summonActions(d).short : '';
+        label = u ? `${nameOf(u)}${act ? ` — ${act}` : ''}` : 'Summon';
         cls = 'sum';
       } else {
         const d = monsterDef(o.who);
@@ -265,16 +283,9 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         cls = 'mon';
       }
       const el = h(`div.slot.${cls}${i === s.turnIdx ? '.cur' : ''}${o.done ? '.done' : ''}`, h('div.ini', String(Math.floor(o.init)).padStart(2, '0')), h('div.nm', label));
-      if (o.kind === 'monster') {
-        el.addEventListener('mouseenter', () => {
-          hoverMonsterType = o.who;
-          showInspect(s, null);
-        });
-        el.addEventListener('mouseleave', () => {
-          hoverMonsterType = null;
-          showInspect(s, null);
-        });
-      }
+      // hovering is handled on the track itself (it is redrawn every beat): see trackHover
+      el.dataset.kind = o.kind;
+      el.dataset.who = o.who;
       track.appendChild(el);
     });
   }
@@ -361,7 +372,14 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       );
     } else if (u) {
       const d = SUMMONS[u.summon];
-      inspect.append(h('div', h('b', d?.name ?? 'Summon'), h('span.dim', ' · summon')), h('div', `HP ${u.hp}/${u.maxHp} · Move ${u.stat.move} · Attack ${u.stat.atk}${u.stat.range ? ` · Range ${u.stat.range}` : ''}`));
+      const owner = s.units.find((x) => x.uid === u.heroUid);
+      inspect.append(
+        h('div', h('b', d?.name ?? 'Summon'), h('span.dim', ` · ${owner ? `${nameOf(owner)}'s ` : ''}summon`)),
+        h('div', `HP ${u.hp}/${u.maxHp}${u.stat.shield ? ` · Shield ${u.stat.shield}` : ''}`),
+        u.conds.length ? h('div.small', 'Conditions: ', u.conds.map(condName).join(', ')) : '',
+      );
+      // what it does on its turn, as a small ability card
+      if (d) inspect.appendChild(h('div.mcard', h('div.t', h('span', 'Each turn'), h('span.accent', String(Math.floor(initOf(s, u))).padStart(2, '0'))), ...summonActions(d).lines.map((l) => h('div.small', l))));
     }
     // what the hex itself is: obstacle, hazard, rubble, trap, door, exit, loot
     tiles.forEach((t, i) => {
@@ -379,7 +397,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     const go = h('button.primary', {}, '') as HTMLButtonElement;
     const draw = (): void => {
       grid.replaceChildren(
-        ...hero.discard.map((c) => {
+        ...byInit(hero.discard).map((c) => {
           const el = cardEl(heroCard(hero, c), { small: true });
           el.classList.add('pick');
           if (pick.includes(c)) el.classList.add('picked');
@@ -457,7 +475,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       {
         onclick: () => {
           if (!cards.length) return;
-          modal(h('div.col', h('h3', label), h('div.row.wrap', cards.map((c) => cardEl(heroCard(hero, c), { small: true })))));
+          modal(h('div.col', h('h3', label), h('div.row.wrap', byInit(cards).map((c) => cardEl(heroCard(hero, c), { small: true })))));
         },
       },
       `${label} (${cards.length})`,
@@ -520,7 +538,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     if (!viewHero || !heroes.some((x) => x.uid === viewHero)) viewHero = heroes.find((x) => !x.exhausted)?.uid ?? heroes[0]!.uid;
     if (s.phase === 'select') {
       const notReady = heroes.find((x) => !x.ready && !x.exhausted);
-      if (notReady && heroes.find((x) => x.uid === viewHero)?.ready) viewHero = notReady.uid;
+      if (notReady && heroes.find((x) => x.uid === viewHero)?.ready && viewPinned !== `${s.round}:${s.phase}`) viewHero = notReady.uid;
     }
     const hero = heroes.find((x) => x.uid === viewHero)!;
     if (heroes.length > 1)
@@ -528,7 +546,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         h(
           'div.herotabs',
           heroes.map((x) =>
-            h(`button.tiny${x.uid === hero.uid ? '.on' : ''}`, { onclick: () => ((viewHero = x.uid), (localPick = []), render(s)) }, `${x.name}${x.exhausted ? ' (exhausted)' : s.phase === 'select' && x.ready ? ' ✔' : ''}`),
+            h(`button.tiny${x.uid === hero.uid ? '.on' : ''}`, { onclick: () => ((viewHero = x.uid), (viewPinned = `${s.round}:${s.phase}`), (localPick = []), render(s)) }, `${x.name}${x.exhausted ? ' (exhausted)' : s.phase === 'select' && x.ready ? ' ✔' : ''}`),
           ),
         ),
       );
@@ -557,6 +575,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           waitingText(s),
           placing(s) ? h('span.small', { style: { color: '#7cc4ff' } }, 'You can still move to another blue start hex until the round begins.') : '',
         );
+        if (hero.longRest) prompt.append(...restChooser(hero, row, false));
         for (const c of hero.picked) {
           const el = cardEl(heroCard(hero, c), { small: true });
           starPlan(el, hero, c, hero.picked, s.round);
@@ -580,7 +599,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       const longRestBtn = (primary: boolean): HTMLElement =>
         h(
           `button${primary ? '.primary' : ''}`,
-          { disabled: !canRest, title: 'Spend the whole round resting (initiative 99): heal 2, refresh spent items, and choose which discarded card to lose.', onclick: () => send({ t: 'longRest', uid: hero.uid }) },
+          { disabled: !canRest, title: 'Spend the whole round resting (initiative 99): heal 2, refresh spent items, and choose which discarded card to lose.', onclick: () => ((viewPinned = null), send({ t: 'longRest', uid: hero.uid })) },
           'Long rest',
         );
       // a short rest in progress: accept the random loss, or pay 1 HP to lose a different random card instead
@@ -604,7 +623,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         const el = cardEl(heroCard(hero, d.card), { small: true });
         el.classList.add('picked');
         row.appendChild(el);
-        for (const c of hero.discard) if (c !== d.card) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
+        for (const c of byInit(hero.discard)) if (c !== d.card) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
         return;
       }
       if (hero.hand.length < 2) {
@@ -615,7 +634,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           piles,
           h('span.pile', `HP ${hero.hp}/${hero.maxHp}`),
         );
-        for (const c of hero.hand) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
+        for (const c of byInit(hero.hand)) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
         return;
       }
       localPick = localPick.filter((c) => hero.hand.includes(c));
@@ -623,13 +642,13 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         h('span.what', localPick.length === 0 ? `Pick two cards for ${hero.name}. The first sets initiative.` : localPick.length === 1 ? 'Pick one more card.' : 'Ready?'),
         h('span.small.dim', { title: 'The star stays on both cards this round, so you remember your plan on your turn.' }, '★ Right-click a top or bottom to plan which half you will play.'),
         placing(s) ? h('span.small', { style: { color: '#7cc4ff' } }, `Choose where ${hero.name} starts: drag them to a blue hex or click one. Locked in when the first round begins.`) : '',
-        h('button.primary', { disabled: localPick.length !== 2, onclick: () => (send({ t: 'pick', uid: hero.uid, cards: localPick }), (localPick = [])) }, localPick.length === 2 ? `Ready (initiative ${cardDef(localPick[0]!).init})` : 'Ready'),
+        h('button.primary', { disabled: localPick.length !== 2, onclick: () => (send({ t: 'pick', uid: hero.uid, cards: localPick }), (localPick = []), (viewPinned = null)) }, localPick.length === 2 ? `Ready (initiative ${cardDef(localPick[0]!).init})` : 'Ready'),
         longRestBtn(false),
         shortRestBtn(false),
         piles,
         h('span.pile', `HP ${hero.hp}/${hero.maxHp}`),
       );
-      for (const c of hero.hand) {
+      for (const c of byInit(hero.hand)) {
         const el = cardEl(heroCard(hero, c), { small: true });
         el.classList.add('pick');
         const idx = localPick.indexOf(c);
@@ -678,6 +697,8 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       else if (slot?.kind === 'summon') who = 'A summon is acting…';
       prompt.append(h('span.what', who), piles);
       if (hero.longRest) prompt.appendChild(restBanner(`${hero.name} is LONG RESTING this round`, 'No cards to play. At initiative 99 they heal 2, refresh items, and you choose a discarded card to lose.'));
+      const restRow = hero.longRest ? h('div.row', { style: { gap: '6px', alignItems: 'flex-start' } }) : null;
+      if (restRow) prompt.append(...restChooser(hero, restRow, false));
       // what the one acting is using right now
       const label = (text: string): HTMLElement => h('div.small.dim', { style: { writingMode: 'vertical-rl', transform: 'rotate(180deg)', alignSelf: 'center' } }, text);
       if (slot?.kind === 'hero') {
@@ -708,7 +729,8 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       }
       // and your own picks for this round
       if (row.childElementCount) row.appendChild(h('div', { style: { width: '2px', alignSelf: 'stretch', background: 'var(--line)', margin: '0 6px' } }));
-      row.appendChild(label(hero.longRest ? `${hero.name}: resting` : `${hero.name}`));
+      row.appendChild(label(hero.longRest ? `${hero.name}: card to lose` : `${hero.name}`));
+      if (restRow) row.appendChild(restRow);
       for (const c of hero.picked) {
         const el = cardEl(heroCard(hero, c), { small: true });
         el.style.opacity = '0.75';
@@ -719,12 +741,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     }
     if (p.kind === 'rest') {
       prompt.append(restBanner(`${hero.name} is LONG RESTING`, `Choose one discarded card to lose for the rest of the scenario. Then ${hero.name} heals 2, refreshes spent items, and the other discards return to the hand.`));
-      for (const c of hero.discard) {
-        const el = cardEl(heroCard(hero, c), { small: true });
-        el.classList.add('pick');
-        el.addEventListener('click', () => confirmRestLose(hero, c));
-        row.appendChild(el);
-      }
+      prompt.append(...restChooser(hero, row, true));
       if (!hero.discard.length) prompt.append(h('span.dim', 'Your discard pile is empty, so nothing is lost.'), h('button.primary', { onclick: () => send({ t: 'restLose', uid: hero.uid, card: '' }) }, 'Finish the rest'));
       // items can be used on a long rest turn too (spent ones refresh when the rest finishes)
       const it = itemRow(s, hero);
@@ -761,7 +778,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         h('span.what', `Recover up to ${n}: click lost cards to take them back into your hand (${recoverPick.length}/${n} chosen).`),
         h('button.primary', { onclick: () => { send({ t: 'recover', uid: hero.uid, cards: recoverPick }); recoverPick = []; } }, recoverPick.length ? `Recover ${recoverPick.length}` : 'Recover none'),
       );
-      for (const c of hero.lost) {
+      for (const c of byInit(hero.lost)) {
         const el = cardEl(heroCard(hero, c), { small: true });
         el.classList.add('pick');
         if (recoverPick.includes(c)) el.classList.add('picked');
@@ -816,28 +833,41 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     if (it) handbar.appendChild(it);
   }
 
+  /**
+   * Long rest: the discarded cards to choose from. Chosen any time in the round; on the rest turn one click confirms.
+   * Returns the prompt pieces (a hint, or the confirm button on the rest turn).
+   */
+  function restChooser(hero: HeroUnit, row: HTMLElement, onTurn: boolean): HTMLElement[] {
+    const chosen = restPick[hero.uid] && hero.discard.includes(restPick[hero.uid]!) ? restPick[hero.uid]! : null;
+    if (!chosen) delete restPick[hero.uid];
+    for (const c of byInit(hero.discard)) {
+      const el = cardEl(heroCard(hero, c), { small: true });
+      el.classList.add('pick');
+      if (c === chosen) {
+        el.classList.add('picked');
+        el.appendChild(h('div.pickno', '✖'));
+      }
+      el.title = c === chosen ? 'This card will be lost' : 'Choose this card to lose';
+      el.addEventListener('click', () => {
+        restPick[hero.uid] = c;
+        render(match.state);
+      });
+      row.appendChild(el);
+    }
+    if (!hero.discard.length) return [];
+    if (!onTurn)
+      return [h('span.small', { style: { color: '#b8ccff' } }, chosen ? `Will lose ${cardDef(chosen).name} — click another discarded card to change it. On your turn, one click confirms.` : 'Choose now which discarded card to lose, so your rest turn is one click.')];
+    return chosen
+      ? [
+          h('button.danger', { onclick: () => (delete restPick[hero.uid], send({ t: 'restLose', uid: hero.uid, card: chosen })) }, `Confirm: lose ${cardDef(chosen).name}`),
+          h('span.small.dim', 'Or click another discarded card to change it.'),
+        ]
+      : [h('span.small', { style: { color: '#b8ccff' } }, 'Click the discarded card to lose, then confirm.')];
+  }
+
   /** The unmissable "this hero is long resting" banner. */
   function restBanner(title: string, sub: string): HTMLElement {
     return h('div.rest-banner', h('span.rest-icon', '🛏'), h('div', h('div.rest-title', title), h('div.rest-sub', sub)));
-  }
-
-  /** Losing a card is permanent for the scenario: ask before sending it. */
-  function confirmRestLose(hero: HeroUnit, c: string): void {
-    const def = heroCard(hero, c);
-    const close = modal(
-      h(
-        'div.col',
-        { style: { alignItems: 'center', gap: '12px' } },
-        h('h2', { style: { margin: 0 } }, `Lose ${def.name}?`),
-        h('div.dim', { style: { maxWidth: '380px', textAlign: 'center' } }, 'It goes to the lost pile and stays there for the rest of the scenario. The other discarded cards come back to the hand.'),
-        cardEl(def, { small: true }),
-        h(
-          'div.row',
-          h('button.danger', { onclick: () => (close(), send({ t: 'restLose', uid: hero.uid, card: c })) }, `Lose ${def.name}`),
-          h('button', { onclick: () => close() }, 'Pick a different card'),
-        ),
-      ),
-    );
   }
 
   function waitingText(s: CombatState): HTMLElement {
@@ -855,13 +885,13 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     }
     if (negateClose) return;
     const hero = s.units.find((u) => u.uid === p.heroUid) as HeroUnit;
-    const choices = hero.hand.filter((c) => !hero.picked.includes(c));
+    const choices = byInit(hero.hand.filter((c) => !hero.picked.includes(c)));
     let pair: string[] = [];
     const pairBtn = h('button', { disabled: true, onclick: () => answer(`discard:${pair.join(',')}`) }, 'Lose these two') as HTMLButtonElement;
     const discardRow = h('div.row.wrap');
     const drawDiscards = (): void => {
       clear(discardRow);
-      for (const c of hero.discard) {
+      for (const c of byInit(hero.discard)) {
         const el = cardEl(heroCard(hero, c), { small: true });
         el.classList.add('pick');
         if (pair.includes(c)) {

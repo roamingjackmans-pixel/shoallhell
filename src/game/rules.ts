@@ -29,6 +29,7 @@ import type {
   MonsterUnit,
   Pending,
   Step,
+  SummonDef,
   SummonUnit,
   TurnSlot,
   Unit,
@@ -126,7 +127,7 @@ function isActing(s: CombatState, u: Unit): boolean {
   return slot.who === u.uid;
 }
 
-function initOf(s: CombatState, u: Unit): number {
+export function initOf(s: CombatState, u: Unit): number {
   if (u.kind === 'hero') return u.init;
   if (u.kind === 'summon') return (hero(s, u.heroUid)?.init ?? 50) - 0.5;
   const d = s.drawn[u.monster];
@@ -1186,6 +1187,10 @@ function summonTurn(s: CombatState, u: SummonUnit): void {
     if (allies[0]) {
       const n = healUnit(s, allies[0], def.healer, hero(s, u.heroUid));
       log(s, `${nameOf(u)} patches up ${nameOf(allies[0])} (+${n}).`, 'hero');
+    } else if (u.hp < u.maxHp || hasCond(u, 'poison') || hasCond(u, 'wound')) {
+      // nobody nearby needs it: patch himself up
+      const n = healUnit(s, u, def.healer, hero(s, u.heroUid));
+      log(s, `${nameOf(u)} patches himself up (+${n}).`, 'hero');
     }
   }
   if (u.stat.atk > 0) {
@@ -2099,6 +2104,26 @@ export function placing(s: CombatState): boolean {
 export function startOptions(s: CombatState): [number, number][] {
   if (!placing(s)) return [];
   return (s.starts ?? []).filter(([x, y]) => !unitAt(s, x, y));
+}
+
+/** What a summon does on its turn, short ("Heal 2 · Shield 1") and in full, for the turn order and hover panel. */
+export function summonActions(def: SummonDef): { short: string; lines: string[] } {
+  const short: string[] = [];
+  const lines: string[] = [];
+  if (def.healer) {
+    short.push(`Heal ${def.healer}`);
+    lines.push(`Heal ${def.healer}: the most hurt ally within 2, or itself when no ally needs it`);
+  }
+  if (def.atk > 0) {
+    short.push(`Attack ${def.atk}${def.range ? ` R${def.range}` : ''}`);
+    lines.push(`${def.move ? `Move ${def.move}, then ` : ''}Attack ${def.atk}${def.range ? ` at range ${def.range}` : ' (melee)'}${def.cond?.length ? `, ${def.cond.join(', ')}` : ''} on the nearest enemy`);
+  } else if (def.move) lines.push(`Move ${def.move}`);
+  if (def.shield) {
+    short.push(`Shield ${def.shield}`);
+    lines.push(`Shield ${def.shield} (always)`);
+  }
+  if (!lines.length) lines.push('Stands there');
+  return { short: short.join(' · '), lines };
 }
 
 /** A card as this hero has it: with their enhancement stickers applied. */

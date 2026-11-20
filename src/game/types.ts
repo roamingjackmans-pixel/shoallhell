@@ -345,7 +345,7 @@ export interface SummonDef {
   range: number;
   cond?: Cond[];
   shield?: number;
-  /** heals the summoner's allies instead of attacking */
+  /** heals the most hurt ally within 2 each turn (itself when no ally needs it) */
   healer?: number;
 }
 
