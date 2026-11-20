@@ -4,9 +4,9 @@ import { H, L, P, atk, bless, buff, deck, heal, infuse, loot, mv, shield, summon
 
 export const CLERIC = deck('cleric', [
   // ---- level 1 (hand 11, so three spare to leave at home)
-  [1, 47, 'Last Rites', H([atk(2, { range: 2, type: 'fire' }), infuse('fire')]), H([heal(3, { range: 2 })]), 'Short service. Very warm.'],
+  [1, 47, 'Last Rites', H([atk(2, { range: 2, type: 'fire' }), infuse('fire')]), H([heal(2, { range: 2 })]), 'Short service. Very warm.'],
   [1, 62, 'Warm Hands', H([heal(3, { range: 1 })]), H([mv(3)])],
-  [1, 36, 'Censer Swing', H([atk(3, { type: 'fire' })]), H([mv(3), heal(1)])],
+  [1, 36, 'Censer Swing', H([atk(2, { type: 'fire' })]), H([mv(3), heal(1)])],
   [1, 81, 'Kindle the Wisp', L([summon('pyre_wisp', 2)]), H([mv(2), infuse('fire')]), 'A little ghost made of candle. Do not ask whose.'],
   [1, 55, 'Long Sermon', H([bless(1, 3)]), H([mv(3)])],
   [1, 28, 'Holy Smoke', H([atk(2, { range: 2, type: 'holy', cond: ['muddle'] })]), H([mv(3)])],

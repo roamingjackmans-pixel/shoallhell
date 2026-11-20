@@ -545,7 +545,7 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
   const label = (tilt < 0 ? `disadvantage${why}: ` : tilt > 0 ? 'advantage: ' : '') + drawn.shown.map(modLabel).join(' / ');
   if (missed) {
     log(s, `${nameOf(a)} attacks ${nameOf(t)} for ${base} (${label}) → ${base} ×0 = 0 damage.`, a.kind === 'monster' ? 'monster' : 'hero');
-    fx(s, { kind: 'miss', uid: t.uid, text: `${base} ×0 = 0`, color: '#c0c0c0' });
+    fx(s, { kind: 'calc', uid: t.uid, text: `${base} × 0 = 0`, color: '#c0c0c0' });
     fx(s, { kind: o.ranged ? 'shot' : 'swing', uid: a.uid, to: t.uid });
     return 0;
   }
@@ -562,6 +562,8 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
   if (o.red) sh = 0;
   sh = Math.max(0, sh - pierce);
   const dmg = Math.max(0, val - sh);
+  // the damage sum, shown over the target: 2 + 1 = 3, (3 + 1) × 2 = 8, 4 + 0 − 1 shield = 3
+  fx(s, { kind: 'calc', uid: t.uid, text: damageSum(base, used, aff, hasCond(t, 'poison'), sh, dmg), color: a.kind === 'monster' ? '#ffb4a0' : '#ffe7a8' });
   if (t.kind === 'hero') bump(t, 'blocked', Math.min(val, sh));
   if (a.kind === 'hero') bumpMax(a, 'bestHit', dmg);
   for (const p of pShields) usePersist(s, t as HeroUnit, p);
@@ -590,6 +592,19 @@ function attack(s: CombatState, a: Unit, t: Unit, o: AttackOpts): number {
   if (t.dead && a.kind === 'hero' && o.ranged) a.stats.rangedKills++;
   retaliateOn(s, a, t);
   return dmg;
+}
+
+/** The attack written out as a sum for the board: base, each modifier, ×2, weakness, poison and shield. */
+export function damageSum(base: number, used: Mod[], aff: number, poisoned: boolean, shield: number, dmg: number): string {
+  const nums = used.filter((m) => !m.mult && !m.temp).map((m) => m.v);
+  let core = `${base}` + nums.map((v) => (v >= 0 ? ` + ${v}` : ` − ${-v}`)).join('');
+  if (used.some((m) => m.mult === 'x2' || m.temp === 'bless')) core = nums.length ? `(${core}) × 2` : `${core} × 2`;
+  const extra: string[] = [];
+  if (aff > 1) extra.push('+ 1 weak');
+  else if (aff < 1) extra.push('− 1 resist');
+  if (poisoned) extra.push('+ 1 poison');
+  if (shield) extra.push(`− ${shield} shield`);
+  return `${core}${extra.length ? ` ${extra.join(' ')}` : ''} = ${dmg}`;
 }
 
 function afterHit(s: CombatState, a: Unit, t: Unit, cond: Cond[], push: number, pull: number): void {
@@ -1739,16 +1754,19 @@ function actInner(s: CombatState, player: string, i: Intent): string | null {
     }
     case 'restLose': {
       if (!s.heroTurn || s.heroTurn.uid !== h.uid || !h.longRest) return 'Not resting.';
-      if (!h.discard.includes(i.card)) return 'Pick a card from your discard pile.';
-      h.discard = h.discard.filter((c) => c !== i.card);
-      h.lost.push(i.card);
-      h.stats.lost++;
+      // the discard can be empty by now (cards burned to avoid damage): then the rest loses nothing
+      if (h.discard.length && !h.discard.includes(i.card)) return 'Pick a card from your discard pile.';
+      if (h.discard.length) {
+        h.discard = h.discard.filter((c) => c !== i.card);
+        h.lost.push(i.card);
+        h.stats.lost++;
+      }
       h.hand.push(...h.discard);
       h.discard = [];
       bump(h, 'longRests');
       healUnit(s, h, 2, h);
       for (const it of h.items) if (it.state === 'spent') it.state = 'ready';
-      log(s, `${h.name} rests, loses ${cardDef(i.card).name}, heals and refreshes items.`, 'hero');
+      log(s, `${h.name} rests, ${i.card && h.lost.includes(i.card) ? `loses ${cardDef(i.card).name}, ` : ""}heals and refreshes items.`, "hero");
       finishTurnCommon(s, h);
       return null;
     }

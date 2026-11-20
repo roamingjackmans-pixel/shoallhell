@@ -160,6 +160,8 @@ function runMatch(match: Match, after: () => void, label?: string, onOver?: () =
   const s = session!;
   let done = false;
   currentMatch = match;
+  // development only: the running match, for checking things from the console
+  if (import.meta.env.DEV) (window as unknown as { __match: Match }).__match = match;
   if (match.role === 'solo') {
     let t = 0;
     match.onChange((st) => {

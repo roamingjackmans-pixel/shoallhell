@@ -165,7 +165,8 @@ export class Match {
       this.notify();
       this.broadcast();
       const slow = before?.kind === 'monster' || before?.kind === 'summon';
-      this.timer = window.setTimeout(beat, (slow ? 750 : 220) / this.speed);
+      // enemy turns run at half speed (1.5 s a beat) so you can see what they do
+      this.timer = window.setTimeout(beat, (slow ? 1500 : 220) / this.speed);
     };
     this.timer = window.setTimeout(beat, 120);
   }

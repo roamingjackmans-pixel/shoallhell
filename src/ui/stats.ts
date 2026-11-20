@@ -1,6 +1,8 @@
 // The scenario stats page: everything each hero did, one column per hero plus the party total. Shown on the results
-// screen when a scenario ends, and from the 📊 Stats button during a fight (numbers so far).
+// screen when a scenario ends, from the 📊 Stats button during a fight (numbers so far), and for each of the recent
+// games in the hall's Records.
 import { CLASSES } from '../data/classes';
+import type { GameHero } from '../game/campaign';
 import type { CombatState, HeroUnit } from '../game/types';
 import { heroPortrait } from '../render/hero';
 import { h } from './dom';
@@ -8,7 +10,7 @@ import { h } from './dom';
 type Row = {
   label: string;
   /** a stat key, or a function for derived numbers */
-  get: (u: HeroUnit) => number;
+  get: (u: GameHero) => number;
   /** how the party column combines: sum (default), max, or none */
   total?: 'sum' | 'max' | 'none';
   /** format a number for display */
@@ -19,8 +21,8 @@ type Row = {
   low?: boolean;
 };
 
-const n = (k: string) => (u: HeroUnit): number => u.stats[k] ?? 0;
-const found = (u: HeroUnit): number => ((u as HeroUnit & { found?: string[] }).found ?? []).length;
+const n = (k: string) => (u: GameHero): number => u.stats[k] ?? 0;
+const found = (u: GameHero): number => u.found;
 
 const SECTIONS: [string, Row[]][] = [
   [
@@ -74,7 +76,7 @@ const SECTIONS: [string, Row[]][] = [
       { label: 'Card halves played', get: n('halves') },
       { label: 'Basic Attack 2 / Move 2', get: n('basics') },
       { label: 'Cards lost', get: n('lost'), low: true },
-      { label: 'Cards left (hand + discard)', get: (u) => u.hand.length + u.discard.length },
+      { label: 'Cards left (hand + discard)', get: (u) => u.cardsLeft },
       { label: 'Short rests', get: n('shortRests') },
       { label: 'Long rests', get: n('longRests') },
       { label: 'Items used', get: n('items') },
@@ -94,8 +96,34 @@ const SECTIONS: [string, Row[]][] = [
 ];
 
 /** The stats table for a fight. `round` is shown in the heading. */
+/** A fight's heroes as stats rows. */
+export function fightHeroes(s: CombatState, owner?: string): GameHero[] {
+  return s.units
+    .filter((u): u is HeroUnit => u.kind === 'hero')
+    .map((u) => ({
+      name: u.name,
+      cls: u.cls,
+      mine: owner ? u.owner === owner : true,
+      stats: u.stats,
+      gold: u.gold,
+      xp: u.xp,
+      hp: u.hp,
+      maxHp: u.maxHp,
+      exhausted: u.exhausted,
+      escaped: !!u.escaped,
+      cardsLeft: u.hand.length + u.discard.length,
+      found: ((u as HeroUnit & { found?: string[] }).found ?? []).length,
+    }));
+}
+
+/** The stats page for a fight (live or finished). */
 export function statsEl(s: CombatState): HTMLElement {
-  const heroes = s.units.filter((u): u is HeroUnit => u.kind === 'hero');
+  const won = s.phase === 'won' ? 'Victory' : s.phase === 'lost' ? 'Defeat' : 'In progress';
+  return statsTable(fightHeroes(s), `${s.scenario.name} · ${won} · round ${s.round} · level ${s.scenario.level}`);
+}
+
+/** The stats table: one column per hero plus the party total. */
+export function statsTable(heroes: GameHero[], subtitle: string): HTMLElement {
   const multi = heroes.length > 1;
   const table = h('table.stats');
   // heading: one column per hero, then the party
@@ -130,17 +158,16 @@ export function statsEl(s: CombatState): HTMLElement {
     }
   }
   table.appendChild(body);
-  const won = s.phase === 'won' ? 'Victory' : s.phase === 'lost' ? 'Defeat' : 'In progress';
   return h(
     'div.col.statspage',
     { style: { gap: '8px' } },
-    h('div.row.wrap', { style: { gap: '14px', alignItems: 'baseline' } }, h('h2', { style: { margin: 0 } }, 'Scenario stats'), h('span.dim', `${s.scenario.name} · ${won} · round ${s.round} · level ${s.scenario.level}`)),
+    h('div.row.wrap', { style: { gap: '14px', alignItems: 'baseline' } }, h('h2', { style: { margin: 0 } }, 'Scenario stats'), h('span.dim', subtitle)),
     h('div.statswrap', table),
     multi ? h('div.tiny.dim', 'Highlighted: the best in the party for that line.') : null,
   );
 }
 
-function partyRate(heroes: HeroUnit[]): string {
+function partyRate(heroes: GameHero[]): string {
   const a = heroes.reduce((x, u) => x + (u.stats.attacks ?? 0), 0);
   const hit = heroes.reduce((x, u) => x + (u.stats.hits ?? 0), 0);
   return a ? `${Math.round((hit / a) * 100)}%` : '0%';

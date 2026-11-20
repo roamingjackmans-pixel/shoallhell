@@ -236,3 +236,8 @@ table.stats .total { background: rgba(255,255,255,.04); font-weight: 700; border
 .modcard.miss { border-color: #777; } .modcard.miss .modlabel { color: #bbb; }
 .modcard.bless { border-color: #ffe98a; background: #2c2a18; } .modcard.bless .modlabel { color: #ffe98a; }
 .modcard.curse { border-color: #9a5ad0; background: #23182e; } .modcard.curse .modlabel { color: #d3a8ff; }
+
+/* planned halves (right-click while picking) */
+.card .half { position: relative; }
+.card .half.starred { box-shadow: inset 0 0 0 2px #ffd24a; background: rgba(255, 210, 74, 0.08); border-radius: 6px; }
+.card .half .star { position: absolute; top: 1px; right: 4px; color: #ffd24a; font-size: 16px; line-height: 1; text-shadow: 0 0 6px rgba(255, 210, 74, 0.9); pointer-events: none; }

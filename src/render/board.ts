@@ -57,7 +57,15 @@ interface Floater {
   text: string;
   color: string;
   t0: number;
+  /** seconds on screen (default 1.4) */
+  life?: number;
+  /** drawn on a dark plate (damage sums) */
+  plate?: boolean;
 }
+
+/** Seconds per hex walked: enemies walk at half speed so their turns are easy to follow. */
+const HERO_STEP = 0.12;
+const ENEMY_STEP = 0.24;
 
 /** A ping someone put on a hex: pulsing rings and their name, for about three seconds. */
 export interface Ping {
@@ -203,7 +211,9 @@ export class Board {
     const before = this.state ? this.state.map.rooms.filter((r) => r.revealed).length : 0;
     this.state = s;
     const now = this.now();
-    for (const f of s.fx) if (f.id > this.lastFx) this.playFx(f, now);
+    // effects of one beat play in order: an enemy's attack waits until it has finished walking
+    let delay = 0;
+    for (const f of s.fx) if (f.id > this.lastFx) delay = this.playFx(f, now, delay);
     this.lastFx = Math.max(this.lastFx, ...s.fx.map((f) => f.id), 0);
     for (const u of s.units) {
       let d = this.disp.get(u.uid);
@@ -238,8 +248,10 @@ export class Board {
     return u ? hexPx(u.x, u.y) : null;
   }
 
-  private playFx(f: Fx, now: number): void {
+  /** Start one effect `delay` seconds from now; returns the delay for the effects after it. */
+  private playFx(f: Fx, now0: number, delay = 0): number {
     const s = this.state!;
+    const now = now0 + delay;
     const u = f.uid ? s.units.find((x) => x.uid === f.uid) : undefined;
     const d = f.uid ? this.disp.get(f.uid) : undefined;
     const at = (): [number, number] => this.unitPx(f.uid) ?? hexPx(Math.round(f.x ?? 0), Math.round(f.y ?? 0));
@@ -249,8 +261,15 @@ export class Board {
           d.path = f.path.map((p) => [p[0], p[1]] as [number, number]);
           d.pathT = now;
           [d.px, d.py] = hexPx(f.path[0]![0], f.path[0]![1]);
+          if (u && u.kind !== 'hero') return delay + (f.path.length - 1) * ENEMY_STEP;
         }
         break;
+      case 'calc': {
+        // the damage sum, on a plate above the target
+        const [x, y] = at();
+        this.floaters.push({ x, y: y - 58, text: f.text ?? '', color: f.color ?? '#ffe7a8', t0: now, life: 2.4, plate: true });
+        break;
+      }
       case 'dmg':
       case 'heal':
       case 'shield':
@@ -286,6 +305,7 @@ export class Board {
         break;
       }
     }
+    return delay;
   }
 
   /** Centre the camera on the revealed rooms. */
@@ -956,8 +976,13 @@ export class Board {
     const d = this.disp.get(u.uid);
     if (!d) return [...hexPx(u.x, u.y), 0];
     if (d.path.length > 1) {
-      const per = 0.12;
+      const per = u.kind === 'hero' ? HERO_STEP : ENEMY_STEP;
       const k = (now - d.pathT) / per;
+      if (k < 0) {
+        // waiting for an earlier effect of the same beat
+        [d.px, d.py] = hexPx(d.path[0]![0], d.path[0]![1]);
+        return [d.px, d.py, 0];
+      }
       const i = Math.floor(k);
       if (i >= d.path.length - 1) {
         d.path = [];
@@ -997,9 +1022,9 @@ export class Board {
     const y = py + 4;
     const dying = d && d.dying > 0 && (u.dead || (u.kind === 'hero' && u.exhausted)) ? Math.min(1, (now - d.dying) / 0.6) : 0;
     const alpha = (1 - dying) * alphaMul * (u.conds.includes('invisible') ? 0.45 : 1);
-    const flash = !!d && d.flashUntil > now;
+    const flash = !!d && d.flashUntil > now && d.flashUntil - now <= 0.18;
     const facing = d?.facing ?? u.facing;
-    const swing = d && d.swingUntil > now ? 1 - (d.swingUntil - now) / 0.3 : 0;
+    const swing = d && d.swingUntil > now && d.swingUntil - now <= 0.3 ? 1 - (d.swingUntil - now) / 0.3 : 0;
     const active = this.focusUid && (this.focusUid === u.uid || (u.kind === 'monster' && this.focusUid === u.monster));
     if (active) glow(ctx, x, y + 8, 42, '#ffe98a', 0.35 + Math.sin(now * 6) * 0.1);
     ctx.save();
@@ -1157,15 +1182,32 @@ export class Board {
   }
 
   private drawFloaters(ctx: CanvasRenderingContext2D, now: number): void {
-    this.floaters = this.floaters.filter((f) => now - f.t0 < 1.4);
+    this.floaters = this.floaters.filter((f) => now - f.t0 < (f.life ?? 1.4));
     ctx.textAlign = 'center';
     for (const f of this.floaters) {
-      const k = (now - f.t0) / 1.4;
+      const life = f.life ?? 1.4;
+      const k = (now - f.t0) / life;
       if (k < 0) continue;
       const x = f.x;
-      const y = f.y - 40 - k * 40;
-      ctx.globalAlpha = Math.min(1, (1 - k) * 2);
-      ctx.font = `bold ${f.text.length > 8 ? 15 : 22}px Segoe UI, system-ui, sans-serif`;
+      const y = f.y - 40 - k * (f.plate ? 16 : 40);
+      ctx.globalAlpha = Math.min(1, (1 - k) * (f.plate ? 4 : 2));
+      // damage sums stay readable when the map is zoomed out
+      const ps = f.plate ? 1 / Math.max(0.55, Math.min(1, this.cam.z)) : 1;
+      ctx.font = f.plate ? `bold ${Math.round(16 * ps)}px Segoe UI, system-ui, sans-serif` : `bold ${f.text.length > 8 ? 15 : 22}px Segoe UI, system-ui, sans-serif`;
+      if (f.plate) {
+        const w = ctx.measureText(f.text).width + 16 * ps;
+        ctx.fillStyle = 'rgba(14, 12, 20, 0.9)';
+        ctx.strokeStyle = f.color;
+        ctx.lineWidth = 1.5 * ps;
+        ctx.beginPath();
+        ctx.roundRect(x - w / 2, y - 17 * ps, w, 24 * ps, 6 * ps);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = f.color;
+        ctx.fillText(f.text, x, y);
+        ctx.globalAlpha = 1;
+        continue;
+      }
       ctx.lineWidth = 4;
       ctx.strokeStyle = '#000';
       ctx.strokeText(f.text, x, y);

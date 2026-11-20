@@ -75,7 +75,41 @@ export interface Profile {
   seenPremise: boolean;
   campaigns: Campaign[];
   active: string;
+  /** the last games played (newest first), with every hero's stats */
+  history?: GameRecord[];
 }
+
+/** One hero's line in a past game. */
+export interface GameHero {
+  name: string;
+  cls: string;
+  /** yours (this account) or a co-op partner's */
+  mine: boolean;
+  stats: Record<string, number>;
+  gold: number;
+  xp: number;
+  hp: number;
+  maxHp: number;
+  exhausted: boolean;
+  escaped: boolean;
+  cardsLeft: number;
+  found: number;
+}
+
+export interface GameRecord {
+  at: number;
+  scenario: string;
+  name: string;
+  won: boolean;
+  rounds: number;
+  level: number;
+  difficulty: string;
+  campaign: string;
+  coop: boolean;
+  heroes: GameHero[];
+}
+
+export const HISTORY_SIZE = 10;
 
 export const MAX_CAMPAIGNS = 8;
 
@@ -183,6 +217,7 @@ export function upgradeProfile(raw: Profile): Profile {
       }
     }
   }
+  out.history = Array.isArray(old.history) ? old.history.slice(0, HISTORY_SIZE) : [];
   for (const id of base.classes) if (!out.classes.includes(id)) out.classes.push(id);
   camp(out);
   return out;
@@ -488,6 +523,7 @@ export function applyResult(p: Profile, s: CombatState, owner: string, sc: Scena
     }
     p.stats.deepest = Math.max(p.stats.deepest ?? 1, deepest(k));
   }
+  recordGame(p, s, owner, k);
   const t = checkTasks(p, k);
   out.tasks = t.tasks;
   out.classes = t.classes;
@@ -619,4 +655,38 @@ export function recordClassTasks(c: Character, stats: Record<string, number>): {
   const perks = Math.floor(total / CHECKS_PER_PERK) - Math.floor(old / CHECKS_PER_PERK);
   if (perks > 0) c.pendingPerks += perks;
   return { stages, perks: Math.max(0, perks) };
+}
+
+// ------------------------------------------------------------------ recent games
+
+/** Keep a finished fight in the account's recent games (the newest HISTORY_SIZE). */
+export function recordGame(p: Profile, s: CombatState, owner: string, k: Campaign): GameRecord {
+  const hs = s.units.filter((u): u is HeroUnit => u.kind === 'hero');
+  const rec: GameRecord = {
+    at: Date.now(),
+    scenario: s.scenario.id,
+    name: s.scenario.name,
+    won: s.phase === 'won',
+    rounds: s.round,
+    level: s.scenario.level,
+    difficulty: s.scenario.difficulty ?? 'normal',
+    campaign: k.name,
+    coop: new Set(hs.map((h) => h.owner)).size > 1,
+    heroes: hs.map((h) => ({
+      name: h.name,
+      cls: h.cls,
+      mine: h.owner === owner,
+      stats: { ...h.stats },
+      gold: h.gold,
+      xp: h.xp,
+      hp: h.hp,
+      maxHp: h.maxHp,
+      exhausted: h.exhausted,
+      escaped: !!h.escaped,
+      cardsLeft: h.hand.length + h.discard.length,
+      found: ((h as HeroUnit & { found?: string[] }).found ?? []).length,
+    })),
+  };
+  p.history = [rec, ...(p.history ?? [])].slice(0, HISTORY_SIZE);
+  return rec;
 }

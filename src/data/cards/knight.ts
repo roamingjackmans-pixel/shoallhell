@@ -5,7 +5,7 @@ export const KNIGHT = deck('knight', [
   // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 15, 'Shield Bash', H([atk(3, { push: 1 })]), H([mv(3)]), 'The shield is mostly for hitting. The rest is for hiding.'],
   [1, 72, 'Hold the Stairs', H([shield(2), ret(1)]), H([mv(2), shield(1, { range: 1 })])],
-  [1, 30, 'Longsword Sweep', H([atk(2, { aoe: 'cleave' })]), H([mv(3), loot(1)])],
+  [1, 30, 'Longsword Sweep', H([atk(3, { aoe: 'cleave' })]), H([mv(3), loot(1)])],
   [1, 61, 'Tabard of Faith', H([atk(2), infuse('holy')]), H([heal(2), shield(1)])],
   [1, 44, 'Heavy Plate', H([atk(3)]), L([xp(1)], P('shield', 1, 0, 'Shield 1 for the rest of the scenario'))],
   [1, 25, 'Charge the Line', H([mv(2), atk(2)]), H([mv(4)])],

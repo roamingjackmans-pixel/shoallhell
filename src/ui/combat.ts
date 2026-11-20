@@ -39,9 +39,28 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   hud.append(top, track, strip, logbox, inspect, handbar, banner);
 
   let viewHero: string | null = null;
+  /** the last 'you need to act' moment we rang for */
+  let lastNeed: string | null = null;
   /** lost cards chosen for a Recover step */
   let recoverPick: string[] = [];
   let localPick: string[] = [];
+  /** the half each hero plans to play this round (right-click while picking): only on this screen, never sent */
+  const plans: Record<string, { round: number; card: string; half: 'top' | 'bot' }> = {};
+
+  /** Star the planned half on a card, or the opposite half of the other card of the pair. */
+  function starPlan(el: HTMLElement, hero: HeroUnit, card: string, pair: string[], round: number): void {
+    const plan = plans[hero.uid];
+    if (!plan || plan.round !== round || !pair.includes(plan.card)) return;
+    let half: 'top' | 'bot' | null = null;
+    if (card === plan.card) half = plan.half;
+    else if (pair.includes(card)) half = plan.half === 'top' ? 'bot' : 'top';
+    if (!half) return;
+    const hs = el.querySelectorAll('.half');
+    const target = hs[half === 'top' ? 0 : 1] as HTMLElement | undefined;
+    if (!target) return;
+    target.classList.add('starred');
+    target.appendChild(h('span.star', { title: card === plan.card ? 'You plan to play this half' : 'So this half of the other card' }, '★'));
+  }
   let lastPhaseRound = '';
   let ended = false;
   let negateClose: (() => void) | null = null;
@@ -134,6 +153,15 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     const label = p.from === me ? 'You' : names.length ? names.join(' & ') : 'Someone';
     board.ping(p.x, p.y, PING_COLORS[i % PING_COLORS.length]!, label);
   });
+
+  /** What this player has to do right now, as a key that changes when a new decision starts (null: nothing). */
+  function needKey(s: CombatState): string | null {
+    if (s.phase === 'won' || s.phase === 'lost') return null;
+    if (s.pending && isMine(s, s.pending.heroUid)) return `hit:${s.round}:${s.turnIdx}:${s.pending.heroUid}:${s.pendQ.length}`;
+    if (s.phase === 'select' && mine(s).some((h) => !h.exhausted && !h.ready)) return `pick:${s.round}`;
+    if (s.phase === 'turns' && s.heroTurn?.started && isMine(s, s.heroTurn.uid)) return `turn:${s.round}:${s.heroTurn.uid}`;
+    return null;
+  }
 
   function isMine(s: CombatState, uid: string): boolean {
     return mine(s).some((h) => h.uid === uid);
@@ -529,7 +557,11 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           waitingText(s),
           placing(s) ? h('span.small', { style: { color: '#7cc4ff' } }, 'You can still move to another blue start hex until the round begins.') : '',
         );
-        for (const c of hero.picked) row.appendChild(cardEl(heroCard(hero, c), { small: true }));
+        for (const c of hero.picked) {
+          const el = cardEl(heroCard(hero, c), { small: true });
+          starPlan(el, hero, c, hero.picked, s.round);
+          row.appendChild(el);
+        }
         return;
       }
       const canRest = hero.discard.length >= 2;
@@ -589,6 +621,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       localPick = localPick.filter((c) => hero.hand.includes(c));
       prompt.append(
         h('span.what', localPick.length === 0 ? `Pick two cards for ${hero.name}. The first sets initiative.` : localPick.length === 1 ? 'Pick one more card.' : 'Ready?'),
+        h('span.small.dim', { title: 'The star stays on both cards this round, so you remember your plan on your turn.' }, '★ Right-click a top or bottom to plan which half you will play.'),
         placing(s) ? h('span.small', { style: { color: '#7cc4ff' } }, `Choose where ${hero.name} starts: drag them to a blue hex or click one. Locked in when the first round begins.`) : '',
         h('button.primary', { disabled: localPick.length !== 2, onclick: () => (send({ t: 'pick', uid: hero.uid, cards: localPick }), (localPick = [])) }, localPick.length === 2 ? `Ready (initiative ${cardDef(localPick[0]!).init})` : 'Ready'),
         longRestBtn(false),
@@ -605,11 +638,29 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
           el.appendChild(h('div.pickno', String(idx + 1)));
         }
         el.addEventListener('click', () => {
-          if (localPick.includes(c)) localPick = localPick.filter((x) => x !== c);
-          else if (localPick.length < 2) localPick.push(c);
+          if (localPick.includes(c)) {
+            localPick = localPick.filter((x) => x !== c);
+            if (plans[hero.uid]?.card === c) delete plans[hero.uid];
+          } else if (localPick.length < 2) localPick.push(c);
           else localPick = [localPick[0]!, c];
           render(match.state);
         });
+        // right-click a half: star it as the half you plan to play (and the other card's opposite half)
+        el.querySelectorAll('.half').forEach((hal, i) => {
+          hal.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const half = i === 0 ? 'top' : 'bot';
+            const cur = plans[hero.uid];
+            if (cur && cur.round === s.round && cur.card === c && cur.half === half) delete plans[hero.uid];
+            else {
+              plans[hero.uid] = { round: s.round, card: c, half };
+              if (!localPick.includes(c)) localPick = localPick.length < 2 ? [...localPick, c] : [localPick[0]!, c];
+            }
+            render(match.state);
+          });
+        });
+        starPlan(el, hero, c, localPick, s.round);
         row.appendChild(el);
       }
       const it = itemRow(s, hero);
@@ -661,6 +712,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       for (const c of hero.picked) {
         const el = cardEl(heroCard(hero, c), { small: true });
         el.style.opacity = '0.75';
+        starPlan(el, hero, c, hero.picked, s.round);
         row.appendChild(el);
       }
       return;
@@ -673,6 +725,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
         el.addEventListener('click', () => confirmRestLose(hero, c));
         row.appendChild(el);
       }
+      if (!hero.discard.length) prompt.append(h('span.dim', 'Your discard pile is empty, so nothing is lost.'), h('button.primary', { onclick: () => send({ t: 'restLose', uid: hero.uid, card: '' }) }, 'Finish the rest'));
       // items can be used on a long rest turn too (spent ones refresh when the rest finishes)
       const it = itemRow(s, hero);
       if (it) handbar.appendChild(it);
@@ -730,6 +783,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     if (s.undo) prompt.appendChild(h('button', { title: 'Take back the card half you just chose (Ctrl+Z). Only until you move, attack, skip or use an item.', onclick: () => send({ t: 'undo', uid: hero.uid }) }, '↶ Undo card'));
     for (const c of hero.picked) {
       const el = cardEl(heroCard(hero, c), { small: true });
+      starPlan(el, hero, c, hero.picked, s.round);
       const usedHalf = t.used.find((u) => u.card === c);
       const halves = el.querySelectorAll('.half');
       const topEl = halves[0] as HTMLElement;
@@ -932,11 +986,14 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     if (tu !== lastTurnUid) {
       lastTurnUid = tu;
       const hu = s.heroTurn ? mine(s).find((x) => x.uid === s.heroTurn!.uid) : undefined;
-      if (hu) {
-        board.ensureVisible(hu.x, hu.y);
-        // your turn: ring (the sound is chosen in the hall's ⚙ Settings)
-        if (s.phase === 'turns') playChime();
-      }
+      if (hu) board.ensureVisible(hu.x, hu.y);
+    }
+    // ring at the start of anything you need to do: picking cards or resting, your turn, an avoid-damage question
+    // (the sound is chosen in the hall's ⚙ Settings)
+    const need = needKey(s);
+    if (need !== lastNeed) {
+      lastNeed = need;
+      if (need) playChime();
     }
     highlights(s);
     renderTop(s);

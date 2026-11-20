@@ -4,9 +4,9 @@ import { H, L, P, atk, buff, deck, infuse, loot, mv, shield, tp, use, xp } from 
 
 export const DUELIST = deck('duelist', [
   // ---- level 1 (hand 12, so three spare to leave at home)
-  [1, 8, 'One-Two', H([atk(2), atk(1)]), H([mv(4)]), 'The second one is the one you remember.'],
+  [1, 8, 'One-Two', H([atk(2), atk(1)]), H([mv(3)]), 'The second one is the one you remember.'],
   [1, 13, 'Flourish', H([atk(2, { cond: ['wound'] })]), H([mv(3)])],
-  [1, 21, 'Cheap Shot', H([atk(3, { cond: ['muddle'] })]), H([mv(3), loot(1)])],
+  [1, 21, 'Cheap Shot', H([atk(2, { cond: ['muddle'] })]), H([mv(3), loot(1)])],
   [1, 17, 'Vanishing Act', H([atk(2, { type: 'void' }), infuse('void')]), H([mv(2), buff(['invisible'])])],
   [1, 31, 'Twin Cuts', H([atk(2, { targets: 2 })]), H([mv(3)])],
   [1, 9, 'Backstep', H([atk(2), mv(2)]), H([mv(3), shield(1)])],

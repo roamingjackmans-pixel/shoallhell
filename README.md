@@ -14,6 +14,8 @@ four players, with email + password accounts.
   On your turn you play the **top half of one and the bottom half of the other** (any top can be a basic Attack 2,
   any bottom a basic Move 2). Chose the wrong half? **Undo** (Ctrl+Z) takes it back until you move, attack, skip
   or use an item. Played cards are discarded; halves marked LOST are gone for the scenario.
+- **Plan your turn.** While picking cards, right-click a top or bottom half to star it: the other picked card's
+  opposite half is starred too, and the stars stay on both cards through the round so you remember the plan.
 - **Rests.** *Short rest* any time between rounds (even with an empty hand): all discards come back except one
   random card, which is lost; you may pay 1 HP once to keep that card and lose a different random one instead.
   *Long rest* (when you are out of cards, or whenever you like): it takes your turn, heals 2, refreshes items, and
@@ -60,12 +62,21 @@ four players, with email + password accounts.
 - **Recover** takes back lost cards of your choice (up to the number on the card).
 - **Ranged monsters stand and shoot.** Their plain ranged attacks no longer move first, so you can walk up to a
   shooter and make it attack with disadvantage. (Their Advance, lunge and reposition cards still move.)
+- **Readable enemy turns.** Enemies act at half speed (1.5 s a beat, walking half as fast), and an attack plays
+  once the attacker has finished walking.
+- **Damage sums.** Every attack, hero or monster, shows its sum over the target: `2 + 1 = 3`, `(3 + 1) × 2 = 8`,
+  `3 × 0 = 0`, `4 + 0 + 1 weak − 1 shield = 4`.
 - **×0.** The modifier card that used to be called Miss is ×0: the log shows the damage, e.g. "3 ×0 = 0 damage".
 - **Ranged attacks at an adjacent target** have disadvantage (two modifier cards, the worse one counts); the log says so.
 - **Settings (⚙ in the hall).** Difficulty per campaign: *Normal* (monsters 15% less health, a quarter fewer hazard
   hexes) or *Hardcore* (monsters 30% more health).
-  Turn chime: a sound when it becomes your hero's turn (bell, ding-dong, steam whistle, harp, gong, triangle,
+  Turn chime: a sound whenever you need to act (picking cards or resting each round, your hero's turn, a big hit to avoid) (bell, ding-dong, steam whistle, harp, gong, triangle,
   kettle, or off) with volume, saved in the browser.
+- **Recent games.** The hall's Records tab lists your last 10 finished games (date, mission, result, rounds,
+  difficulty, heroes) and opens each one's full stats table.
+- **Class balance.** A balance report plays every class through the same seeded missions with the same bot and
+  compares win rates; all classes sit within ±20% of the average. See `docs/BALANCE.md` for the method, the results
+  and the card changes it led to.
 - **Stats.** When a scenario ends, the results screen shows a full stats table: damage, hits and misses, kills,
   damage taken and blocked, healing, shields, elements, cards, rests, items, movement and loot, one column per
   hero plus the party total, with the best in each line highlighted. 📊 Stats shows the same table mid-fight.

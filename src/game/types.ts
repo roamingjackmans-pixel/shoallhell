@@ -387,7 +387,7 @@ export interface LogLine {
 /** A visual event the renderer animates (floating numbers, swings, deaths). */
 export interface Fx {
   id: number;
-  kind: 'dmg' | 'heal' | 'shield' | 'miss' | 'cond' | 'swing' | 'shot' | 'death' | 'text' | 'move' | 'infuse' | 'loot';
+  kind: 'dmg' | 'heal' | 'shield' | 'miss' | 'cond' | 'swing' | 'shot' | 'death' | 'text' | 'move' | 'infuse' | 'loot' | 'calc';
   uid?: string;
   to?: string;
   x?: number;

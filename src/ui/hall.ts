@@ -10,6 +10,7 @@ import { TASKS } from '../data/tasks';
 import {
   buyItem,
   camp,
+  HISTORY_SIZE,
   checkmarks,
   classTaskProgress,
   MAX_CAMPAIGNS,
@@ -46,6 +47,7 @@ import { cardEl } from './cardView';
 import { clear, h, modal, toast } from './dom';
 import { cardDef, heroCard } from '../game/rules';
 import { enhancerTab } from './enhancer';
+import { statsTable } from './stats';
 import { CHECKS_PER_PERK, CLASS_TASKS } from '../data/classTasks';
 import { clearResume, getResume } from '../resume';
 import { GAME_VERSION } from '../version';
@@ -541,6 +543,43 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
     return box;
   }
 
+  /** The last games played on this account, newest first; each opens its full stats table. */
+  function recentGames(): HTMLElement {
+    const games = p.history ?? [];
+    const box = h('div.col', { style: { gap: '6px', marginTop: '10px' } }, h('h3', { style: { margin: 0 } }, `Recent games (${games.length} of ${HISTORY_SIZE})`));
+    if (!games.length) {
+      box.appendChild(h('div.small.dim', 'Finished missions show up here with every hero’s stats.'));
+      return box;
+    }
+    for (const g of games) {
+      const when = new Date(g.at);
+      const sum = (key: string): number => g.heroes.reduce((a, x) => a + (x.stats[key] ?? 0), 0);
+      const heroesLine = g.heroes.map((x) => `${x.name} (${CLASSES[x.cls]?.name ?? x.cls})`).join(', ');
+      box.appendChild(
+        h(
+          'div.shopitem.gamerow',
+          h(
+            'div',
+            h('b', { style: { color: g.won ? 'var(--good)' : '#ff8a7a' } }, g.won ? 'Victory' : 'Defeat'),
+            h('span', ` · ${g.name}`),
+            h('div.small.dim', `${when.toLocaleDateString()} ${when.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · ${g.rounds} rounds · level ${g.level} · ${g.difficulty === 'hardcore' ? 'Hardcore' : 'Normal'}${g.coop ? ' · co-op' : ''} · ${g.campaign}`),
+            h('div.small', heroesLine),
+            h('div.tiny.dim', `Damage ${sum('dmg')} · kills ${sum('kills')} · damage taken ${sum('dmgTaken')} · healing ${sum('heals')} · cards lost ${sum('lost')}`),
+          ),
+          h(
+            'button.tiny',
+            {
+              onclick: () =>
+                modal(h('div', { style: { width: 'min(1000px, 94vw)' } }, statsTable(g.heroes, `${g.name} · ${g.won ? 'Victory' : 'Defeat'} · ${g.rounds} rounds · level ${g.level} · ${when.toLocaleString()}`))),
+            },
+            '📊 Stats',
+          ),
+        ),
+      );
+    }
+    return box;
+  }
+
   function recordsTab(): HTMLElement {
     const st = p.stats;
     const rows: [string, number][] = [
@@ -561,6 +600,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
       h('h3', 'Union records'),
       h('div', { style: { display: 'grid', gridTemplateColumns: 'auto auto', gap: '4px 20px', width: 'max-content' } }, rows.map(([k, v]) => [h('span.dim', k), h('b', String(v))])),
       h('div.small.dim', `Classes unlocked: ${p.classes.length} of ${CLASS_IDS.length}. Retired tenants: ${k.characters.filter((c) => c.retired).length}.`),
+      recentGames(),
     );
   }
 
@@ -785,7 +825,7 @@ export function hallScreen(root: HTMLElement, nav: HallNav): () => void {
         ),
         h('div.tiny.dim', 'Each campaign has its own difficulty. It applies to missions started from now on, solo or hosted in co-op.'),
         h('h3', { style: { margin: '8px 0 0' } }, 'Turn chime'),
-        h('div.small.dim', 'Plays when it becomes one of your heroes’ turn. Saved in this browser.'),
+        h('div.small.dim', 'Plays whenever you need to act: picking cards or resting each round, your hero’s turn, and a big hit you can avoid. Saved in this browser.'),
         h(
           'div.col',
           { style: { gap: '4px' } },

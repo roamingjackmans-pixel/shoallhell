@@ -5,8 +5,8 @@ export const DIVER = deck('diver', [
   // ---- level 1 (hand 10, so three spare to leave at home)
   [1, 24, 'Reel It In', H([atk(2, { range: 3, pull: 2 })]), H([mv(3, true)]), 'Catch of the day. Every day.'],
   [1, 47, 'Pin to the Floor', H([atk(3, { cond: ['immobilize'] })]), H([mv(2), infuse('magic')])],
-  [1, 38, 'Pressure Drop', H([atk(2, { range: 2, type: 'magic' }), infuse('magic')]), H([mv(3)])],
-  [1, 16, 'Through the Water', H([mv(3, true), atk(2)]), H([mv(4, true)]), 'The Shoal is knee-deep. The Diver goes under anyway.'],
+  [1, 38, 'Pressure Drop', H([atk(3, { range: 2, type: 'magic' }), infuse('magic')]), H([mv(3)])],
+  [1, 16, 'Through the Water', H([mv(3, true), atk(3)]), H([mv(4, true)]), 'The Shoal is knee-deep. The Diver goes under anyway.'],
   [1, 63, 'Ballast Boots', H([atk(3, { push: 1 })]), H([mv(2), shield(1)]), 'Lead soles. Kicks like a filing cabinet.'],
   [1, 33, 'Tow Line', H([atk(2, { range: 3, pull: 3, use: use('magic', { cond: ['immobilize'], text: 'Immobilize' }) })]), H([mv(2), loot(1)])],
   [1, 72, 'Leak in a Jar', L([atk(3, { range: 2, aoe: 'blast', type: 'magic', cond: ['immobilize'], xp: 2 })]), H([heal(2), infuse('magic')]), 'Open in case of emergency. Do not open.'],
