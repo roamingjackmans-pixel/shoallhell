@@ -695,12 +695,19 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       let who = 'Monsters are acting…';
       if (slot?.kind === 'hero') who = `${(s.units.find((u) => u.uid === slot.who) as HeroUnit)?.name ?? 'Someone'}'s turn.`;
       else if (slot?.kind === 'summon') who = 'A summon is acting…';
-      prompt.append(h('span.what', who), piles);
+      // a fixed width, so the buttons after it do not shift as turns pass
+      prompt.append(h('span.what', { style: { minWidth: '210px' } }, who), piles);
       if (hero.longRest) prompt.appendChild(restBanner(`${hero.name} is LONG RESTING this round`, 'No cards to play. At initiative 99 they heal 2, refresh items, and you choose a discarded card to lose.'));
-      const restRow = hero.longRest ? h('div.row', { style: { gap: '6px', alignItems: 'flex-start' } }) : null;
-      if (restRow) prompt.append(...restChooser(hero, restRow, false));
-      // what the one acting is using right now
       const label = (text: string): HTMLElement => h('div.small.dim', { style: { writingMode: 'vertical-rl', transform: 'rotate(180deg)', alignSelf: 'center' } }, text);
+      // long resting: only the discards to choose from, so the row holds still while the others act
+      // (who is acting is in the turn order)
+      if (hero.longRest) {
+        const restRow = h('div.row', { style: { gap: '6px', alignItems: 'flex-start' } });
+        prompt.append(...restChooser(hero, restRow, false));
+        row.append(label(`${hero.name}: card to lose`), restRow);
+        return;
+      }
+      // what the one acting is using right now
       if (slot?.kind === 'hero') {
         const actor = s.units.find((u) => u.uid === slot.who) as HeroUnit | undefined;
         if (actor && actor.uid !== hero.uid) {
@@ -729,8 +736,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
       }
       // and your own picks for this round
       if (row.childElementCount) row.appendChild(h('div', { style: { width: '2px', alignSelf: 'stretch', background: 'var(--line)', margin: '0 6px' } }));
-      row.appendChild(label(hero.longRest ? `${hero.name}: card to lose` : `${hero.name}`));
-      if (restRow) row.appendChild(restRow);
+      row.appendChild(label(hero.name));
       for (const c of hero.picked) {
         const el = cardEl(heroCard(hero, c), { small: true });
         el.style.opacity = '0.75';
