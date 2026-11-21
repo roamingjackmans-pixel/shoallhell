@@ -100,6 +100,13 @@ four players, with email + password accounts.
   cards to build with, two choices at each level up to 5, and a perk list that tunes its attack modifier deck.
 - **Progress.** XP, levels, new cards, perks, gold, Gary's stall (items), enhancements, blessings, Tasks, records — saved to your account.
 
+## Other games on this server
+
+The same accounts, friends, presence, invites and lobby relay serve **Smash Your Bros** (game id `syb`, saves at
+`/api/syb/*`) and **Baker's Dozen** (game id `bd`, saves at `/api/bd/*`, plus a per-day board at `/api/bd/daily`
+that shows you and your friends). Their pages live in their own repos; their server side ships with this one
+(`fly deploy`).
+
 ## Run it locally
 
 Needs Node 22+ (24 recommended). PowerShell:

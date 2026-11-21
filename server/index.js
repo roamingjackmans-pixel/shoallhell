@@ -19,7 +19,7 @@ import { flush, load, put } from './store.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3031);
 const BASE = '/games/shoallhell';
-const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175')
+const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -45,9 +45,11 @@ const api = express.Router();
 const profileName = (id) => `profiles/${id}.json`;
 // Smash Your Bros (josephjackman.com/games/smashyourbros/) shares these accounts and friends; its save is separate.
 const sybProfileName = (id) => `profiles/syb/${id}.json`;
+// Baker's Dozen (josephjackman.com/games/bakersdozen/) too, with its own save and a daily-challenge board.
+const bdProfileName = (id) => `profiles/bd/${id}.json`;
 /** the games that use this server; sockets say which one they are (handshake auth.game) */
-const GAMES = new Set(['shoallhell', 'syb']);
-const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros' };
+const GAMES = new Set(['shoallhell', 'syb', 'bd']);
+const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros', bd: "Baker's Dozen" };
 
 api.get('/ping', (_req, res) => res.json({ ok: true, name: 'shoallhell' }));
 
@@ -101,6 +103,48 @@ api.put('/syb/profile', requireUser, (req, res) => {
   const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
   put(sybProfileName(req.user.id), next);
   res.json({ rev: next.rev });
+});
+
+api.get('/bd/me', requireUser, (req, res) => {
+  const doc = load(bdProfileName(req.user.id), { rev: 0, profile: null });
+  res.json({ user: publicUser(req.user), profile: doc.profile, rev: doc.rev });
+});
+
+/** Baker's Dozen save, same revision check as Shoallhell's */
+api.put('/bd/profile', requireUser, (req, res) => {
+  const { profile, rev } = req.body || {};
+  if (!profile || typeof profile !== 'object') return res.status(400).json({ error: 'No profile.' });
+  if (JSON.stringify(profile).length > MAX_PROFILE) return res.status(413).json({ error: 'Save is too large.' });
+  const doc = load(bdProfileName(req.user.id), { rev: 0, profile: null });
+  if (typeof rev === 'number' && doc.profile && rev !== doc.rev) return res.status(409).json({ error: 'Your save changed on another device. Reload to get the newest one.', rev: doc.rev, profile: doc.profile });
+  const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
+  put(bdProfileName(req.user.id), next);
+  res.json({ rev: next.rev });
+});
+
+/** Baker's Dozen daily challenge: one best score per account per day; you see your own and your friends'. */
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+const dailyName = (date) => `bd/daily/${date}.json`;
+api.get('/bd/daily', requireUser, (req, res) => {
+  const date = String(req.query.date || '');
+  if (!DAY.test(date)) return res.status(400).json({ error: 'Bad date.' });
+  const board = load(dailyName(date), {});
+  const ids = [req.user.id, ...friendIds(req.user.id)];
+  const rows = ids.filter((id) => board[id]).map((id) => ({ userId: id, ...board[id], me: id === req.user.id }));
+  rows.sort((a, b) => b.score - a.score);
+  res.json({ date, rows });
+});
+api.post('/bd/daily', requireUser, (req, res) => {
+  const date = String(req.body?.date || '');
+  const score = Math.floor(Number(req.body?.score));
+  if (!DAY.test(date) || !Number.isFinite(score) || score < 0 || score > 100000) return res.status(400).json({ error: 'Bad score.' });
+  const board = load(dailyName(date), {});
+  const prev = board[req.user.id];
+  if (!prev || score > prev.score) {
+    board[req.user.id] = { name: req.user.name, score, baker: String(req.body?.baker || '').slice(0, 20), survived: !!req.body?.survived, at: Date.now() };
+    put(dailyName(date), board);
+  }
+  res.json({ ok: true, best: board[req.user.id].score });
 });
 
 api.post('/password', requireUser, (req, res) => {
