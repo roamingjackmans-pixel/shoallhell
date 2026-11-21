@@ -19,7 +19,7 @@ import { flush, load, put } from './store.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3031);
 const BASE = '/games/shoallhell';
-const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174')
+const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -43,6 +43,11 @@ app.use(express.json({ limit: '600kb' }));
 
 const api = express.Router();
 const profileName = (id) => `profiles/${id}.json`;
+// Smash Your Bros (josephjackman.com/games/smashyourbros/) shares these accounts and friends; its save is separate.
+const sybProfileName = (id) => `profiles/syb/${id}.json`;
+/** the games that use this server; sockets say which one they are (handshake auth.game) */
+const GAMES = new Set(['shoallhell', 'syb']);
+const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros' };
 
 api.get('/ping', (_req, res) => res.json({ ok: true, name: 'shoallhell' }));
 
@@ -78,6 +83,23 @@ api.put('/profile', requireUser, (req, res) => {
   if (typeof rev === 'number' && doc.profile && rev !== doc.rev) return res.status(409).json({ error: 'Your save changed on another device. Reload to get the newest one.', rev: doc.rev, profile: doc.profile });
   const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
   put(profileName(req.user.id), next);
+  res.json({ rev: next.rev });
+});
+
+api.get('/syb/me', requireUser, (req, res) => {
+  const doc = load(sybProfileName(req.user.id), { rev: 0, profile: null });
+  res.json({ user: publicUser(req.user), profile: doc.profile, rev: doc.rev });
+});
+
+/** Smash Your Bros save, same revision check as Shoallhell's */
+api.put('/syb/profile', requireUser, (req, res) => {
+  const { profile, rev } = req.body || {};
+  if (!profile || typeof profile !== 'object') return res.status(400).json({ error: 'No profile.' });
+  if (JSON.stringify(profile).length > MAX_PROFILE) return res.status(413).json({ error: 'Save is too large.' });
+  const doc = load(sybProfileName(req.user.id), { rev: 0, profile: null });
+  if (typeof rev === 'number' && doc.profile && rev !== doc.rev) return res.status(409).json({ error: 'Your save changed on another device. Reload to get the newest one.', rev: doc.rev, profile: doc.profile });
+  const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
+  put(sybProfileName(req.user.id), next);
   res.json({ rev: next.rev });
 });
 
@@ -150,6 +172,7 @@ const HOST_GRACE_MS = 3 * 60 * 1000;
 function roomView(r) {
   return {
     code: r.code,
+    game: r.game,
     host: r.hostUser,
     hostOnline: !!r.host,
     players: [...r.players.values()].map((p) => ({ userId: p.userId, name: p.name, chars: p.chars, online: !!p.socketId })),
@@ -176,10 +199,17 @@ const online = new Map();
 
 function presenceOf(userId) {
   const set = online.get(userId);
-  if (!set || !set.size) return { online: false, lobby: null };
+  if (!set || !set.size) return { online: false, lobby: null, game: null };
   let lobby = null;
-  for (const s of set) if (s.data.room && rooms.has(s.data.room)) lobby = s.data.room;
-  return { online: true, lobby };
+  let game = null;
+  for (const s of set) {
+    game = game || s.data.game;
+    if (s.data.room && rooms.has(s.data.room)) {
+      lobby = s.data.room;
+      game = rooms.get(s.data.room).game;
+    }
+  }
+  return { online: true, lobby, game };
 }
 
 function emitToUser(userId, ev, data) {
@@ -213,6 +243,8 @@ io.use((socket, next) => {
   const user = userForToken(socket.handshake.auth?.token);
   if (!user) return next(new Error('Please sign in.'));
   socket.data.user = { id: user.id, name: user.name };
+  const g = String(socket.handshake.auth?.game || 'shoallhell');
+  socket.data.game = GAMES.has(g) ? g : 'shoallhell';
   next();
 });
 
@@ -229,7 +261,7 @@ io.on('connection', (socket) => {
     if (!r) return ack?.({ error: 'Open a co-op lobby first.' });
     if (!areFriends(me.id, to)) return ack?.({ error: 'You can only invite friends.' });
     if (!presenceOf(to).online) return ack?.({ error: 'They are offline.' });
-    emitToUser(to, 'friend:invite', { fromId: me.id, fromName: me.name, code: r.code });
+    emitToUser(to, 'friend:invite', { fromId: me.id, fromName: me.name, code: r.code, game: r.game, gameName: GAME_NAMES[r.game] });
     ack?.({ ok: true });
   });
 
@@ -237,8 +269,9 @@ io.on('connection', (socket) => {
   socket.on('friend:lobby', (msg, ack) => {
     const to = String(msg?.userId || '');
     if (!areFriends(me.id, to)) return ack?.({ error: 'You can only join friends.' });
-    const lobby = presenceOf(to).lobby;
-    ack?.(lobby ? { ok: true, code: lobby } : { error: 'They are not in a lobby right now.' });
+    const p = presenceOf(to);
+    if (p.lobby && p.game !== socket.data.game) return ack?.({ error: `They are in a ${GAME_NAMES[p.game] || p.game} lobby.`, game: p.game, code: p.lobby });
+    ack?.(p.lobby ? { ok: true, code: p.lobby, game: p.game } : { error: 'They are not in a lobby right now.' });
   });
 
   /** on purpose (Leave) the seat or room goes; on a dropped connection it is held for a comeback */
@@ -274,7 +307,7 @@ io.on('connection', (socket) => {
   socket.on('host:create', (msg, ack) => {
     leave(true);
     const code = newCode();
-    const r = { code, host: socket.id, hostUser: me.id, hostAway: null, players: new Map() };
+    const r = { code, game: socket.data.game, host: socket.id, hostUser: me.id, hostAway: null, players: new Map() };
     r.players.set(me.id, { userId: me.id, name: me.name, socketId: socket.id, chars: cleanChars(msg?.chars) });
     rooms.set(code, r);
     socket.join(code);
@@ -304,7 +337,8 @@ io.on('connection', (socket) => {
   socket.on('room:join', (msg, ack) => {
     const code = String(msg?.code || '').trim();
     const r = rooms.get(code);
-    if (!r) return ack?.({ error: 'No game with that code. Check the six digits with your host.' });
+    if (!r) return ack?.({ error: 'No game with that code. Check the four digits with your host.' });
+    if (r.game !== socket.data.game) return ack?.({ error: `That code is a ${GAME_NAMES[r.game] || r.game} lobby. Open ${GAME_NAMES[r.game] || r.game} to join it.` });
     if (r.hostUser === me.id) return ack?.({ error: 'That is your own game.' });
     const seat = r.players.get(me.id);
     if (!seat && r.players.size >= 4) return ack?.({ error: 'That game is full (four players).' });
@@ -342,6 +376,22 @@ io.on('connection', (socket) => {
     const r = rooms.get(socket.data.room);
     if (!r || !r.host || r.host === socket.id) return;
     io.to(r.host).emit('guest:msg', { from: me.id, msg });
+  });
+
+  // ---- Smash Your Bros: each player's inputs go to everyone else in the room (rollback netcode), and
+  // WebRTC offers/answers/candidates pass between two players so they can connect directly.
+  socket.on('syb:in', (msg) => {
+    const r = rooms.get(socket.data.room);
+    if (!r || r.game !== 'syb') return;
+    socket.to(r.code).emit('syb:in', { from: me.id, d: msg });
+  });
+
+  socket.on('rtc:signal', (msg) => {
+    const r = rooms.get(socket.data.room);
+    if (!r) return;
+    const p = r.players.get(String(msg?.to || ''));
+    if (!p?.socketId) return;
+    io.to(p.socketId).emit('rtc:signal', { from: me.id, data: msg?.data });
   });
 
   socket.on('disconnect', () => {

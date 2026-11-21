@@ -56,7 +56,7 @@ export class Coop {
     socket.on('host:away', (m: { until: number }) => this.emit('hostaway', m));
     socket.on('host:back', () => this.emit('hostback', {}));
     socket.on('friends:update', () => this.emit('friends', {}));
-    socket.on('friend:invite', (m: { fromId: string; fromName: string; code: string }) => this.emit('invite', m));
+    socket.on('friend:invite', (m: { fromId: string; fromName: string; code: string; game?: string }) => this.emit('invite', m));
     socket.on('disconnect', () => this.emit('disconnect', {}));
     // the socket came back after a drop: take our place in the room again
     socket.on('connect', () => void this.reattach());

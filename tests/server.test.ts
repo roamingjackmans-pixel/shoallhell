@@ -44,9 +44,9 @@ afterAll(() => {
   }
 });
 
-function connect(token: string): Promise<Socket> {
+function connect(token: string, game?: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const s = io(`http://localhost:${PORT}`, { path: '/games/shoallhell/socket.io', auth: { token }, transports: ['websocket'] });
+    const s = io(`http://localhost:${PORT}`, { path: '/games/shoallhell/socket.io', auth: { token, game }, transports: ['websocket'] });
     s.once('connect', () => resolve(s));
     s.once('connect_error', reject);
   });
@@ -154,6 +154,42 @@ describe('server', () => {
     expect((await get(tokB)).friends).toEqual([]);
     sa.disconnect();
     sb.disconnect();
+  });
+
+  it('Smash Your Bros: separate save, game-tagged lobbies, input relay and WebRTC signalling', async () => {
+    // its own save, same account
+    const empty = await fetch(`${BASE}/api/syb/me`, { headers: { Authorization: `Bearer ${tokA}` } }).then((r) => r.json());
+    expect(empty.profile).toBe(null);
+    const saved = await post('/syb/profile', { profile: { v: 1, unlocked: ['kit'] }, rev: 0 }, tokA, 'PUT');
+    expect(saved.data.rev).toBe(1);
+    const back = await fetch(`${BASE}/api/syb/me`, { headers: { Authorization: `Bearer ${tokA}` } }).then((r) => r.json());
+    expect(back.profile.unlocked).toEqual(['kit']);
+    const shoal = await fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${tokA}` } }).then((r) => r.json());
+    expect(shoal.profile?.unlocked).toBeUndefined();
+    // a Smash Your Bros lobby can't be joined from Shoallhell, and vice versa
+    const host = await connect(tokA, 'syb');
+    const shoalGuest = await connect(tokB);
+    const room = await new Promise<{ code: string; game: string }>((res) => host.emit('host:create', { chars: [] }, (r: { room: { code: string; game: string } }) => res(r.room)));
+    expect(room.game).toBe('syb');
+    const wrong = await new Promise<{ error?: string }>((res) => shoalGuest.emit('room:join', { code: room.code, chars: [] }, res));
+    expect(wrong.error).toMatch(/Smash Your Bros/);
+    const guest = await connect(tokB, 'syb');
+    const joined = await new Promise<{ ok?: boolean }>((res) => guest.emit('room:join', { code: room.code, chars: [] }, res));
+    expect(joined.ok).toBe(true);
+    // inputs go to everyone else in the room
+    const got = new Promise<{ from: string; d: { f: number } }>((res) => guest.once('syb:in', res));
+    host.emit('syb:in', { f: 42, i: [1, 2, 3] });
+    const msg = await got;
+    expect(msg.d.f).toBe(42);
+    // WebRTC signals reach one named player
+    const bId = (await fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${tokB}` } }).then((r) => r.json())).user.id;
+    const sig = new Promise<{ data: { sdp: string } }>((res) => guest.once('rtc:signal', res));
+    host.emit('rtc:signal', { to: bId, data: { sdp: 'offer' } });
+    expect((await sig).data.sdp).toBe('offer');
+    host.emit('room:leave');
+    host.disconnect();
+    guest.disconnect();
+    shoalGuest.disconnect();
   });
 
   it('refuses sockets without a session', async () => {

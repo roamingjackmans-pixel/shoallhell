@@ -99,6 +99,8 @@ export interface FriendInfo {
   online?: boolean;
   /** the co-op lobby they are in, if any */
   lobby?: string | null;
+  /** which game they are playing ('shoallhell' or 'syb' = Smash Your Bros, same accounts and friends) */
+  game?: string | null;
 }
 export interface FriendsView {
   /** your own friend code */

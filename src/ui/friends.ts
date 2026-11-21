@@ -42,7 +42,7 @@ export async function startFriends(nav: FriendsNav): Promise<void> {
   try {
     const coop = await Coop.shared();
     coop.on('friends', () => void refreshFriends());
-    coop.on('invite', (m: { fromName: string; code: string }) => showInvite(m, nav));
+    coop.on('invite', (m: { fromName: string; code: string; game?: string }) => showInvite(m, nav));
     coop.on('reattached', () => void refreshFriends());
   } catch {
     wired = false;
@@ -54,7 +54,26 @@ export function stopFriends(): void {
   cached = null;
 }
 
-function showInvite(m: { fromName: string; code: string }, nav: FriendsNav): void {
+/** Smash Your Bros shares these accounts and friends; its lobbies open in that game */
+const SYB_URL = 'https://josephjackman.com/games/smashyourbros/';
+
+function showInvite(m: { fromName: string; code: string; game?: string }, nav: FriendsNav): void {
+  if (m.game === 'syb') {
+    const close2 = modal(
+      h(
+        'div.col',
+        { style: { width: 'min(420px, 90vw)' } },
+        h('h2', '🥊 Smash Your Bros invite'),
+        h('div', h('b', m.fromName), ` invites you to their Smash Your Bros lobby (${m.code}).`),
+        h(
+          'div.row',
+          h('button.primary', { onclick: () => (close2(), window.open(`${SYB_URL}?join=${m.code}`, '_blank')) }, 'Open Smash Your Bros'),
+          h('button', { onclick: () => close2() }, 'Not now'),
+        ),
+      ),
+    );
+    return;
+  }
   const close = modal(
     h(
       'div.col',
@@ -120,13 +139,15 @@ export function friendsModal(nav: FriendsNav, inLobby = false): void {
     }
   };
   const friendRow = (f: FriendInfo): HTMLElement => {
-    const status = f.lobby ? `in a co-op lobby (${f.lobby})` : f.online ? 'online' : 'offline';
+    const syb = f.game === 'syb';
+    const status = syb ? (f.lobby ? `in a Smash Your Bros lobby (${f.lobby})` : 'playing Smash Your Bros') : f.lobby ? `in a co-op lobby (${f.lobby})` : f.online ? 'online' : 'offline';
     return h(
       'div.depth.row',
       h('span', { style: { color: f.online ? 'var(--good)' : 'var(--dim)', fontSize: '18px' } }, '●'),
       h('div.grow', h('b', f.name), h('div.small.dim', status)),
       inLobby && f.online && !f.lobby ? h('button.primary.tiny', { onclick: () => void invite(f) }, 'Invite') : '',
-      f.lobby && !inLobby ? h('button.primary.tiny', { onclick: () => (close(), nav.joinLobby(f.lobby!)) }, 'Join') : '',
+      f.lobby && !inLobby && !syb ? h('button.primary.tiny', { onclick: () => (close(), nav.joinLobby(f.lobby!)) }, 'Join') : '',
+      f.lobby && syb ? h('button.tiny', { onclick: () => window.open(`${SYB_URL}?join=${f.lobby}`, '_blank') }, 'Open') : '',
       h('button.tiny', { title: 'Unfriend', onclick: () => confirm(`Remove ${f.name} from your friends?`) && void act(() => api.removeFriend(f.id)) }, '✕'),
     );
   };
