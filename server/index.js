@@ -12,14 +12,15 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Server } from 'socket.io';
-import { changePassword, issueSession, login, logout, publicUser, rename, requireUser, signup, userForToken } from './auth.js';
+import { changePassword, getUser, issueSession, login, logout, publicUser, rename, requireUser, signup, userForToken } from './auth.js';
 import { accept as acceptFriend, addByCode, areFriends, drop as dropFriend, friendIds, friendsView } from './friends.js';
 import { flush, load, put } from './store.js';
+import { mountFlashGames } from './flashgames.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3031);
 const BASE = '/games/shoallhell';
-const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176')
+const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:5177,http://127.0.0.1:5177')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -158,6 +159,9 @@ api.post('/name', requireUser, (req, res) => {
   if (r.error) return res.status(r.status).json({ error: r.error });
   res.json({ ok: true, user: publicUser(req.user) });
 });
+
+// FlashGames (josephjackman.com/games/flashgames/): the daily speedrun boards, see flashgames.js
+mountFlashGames(api, { requireUser, userForToken, friendIds, getUser });
 
 // ------------------------------------------------------------------ friends
 
