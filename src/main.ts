@@ -4,11 +4,14 @@
 // guests are pulled into each one automatically, and everyone comes back to the lobby afterwards. The room is
 // remembered in the browser, so a refresh (host or guest) puts you straight back in the lobby or the fight.
 import './ui/theme.css';
+// FlashGames: sets window.FlashRun (inactive unless the page was opened with ?flash=…)
+import './flash/flash-run.js';
 import { save, saveNow, session, signOut, startOnline } from './app';
 import { EPILOGUE, PREMISE, SUBTITLE, TITLE, scenarioById, type ScenarioDef } from './data/story';
 import { applyResult, camp, heroSetup, makeCharacter, scenarioLevel, type Character } from './game/campaign';
 import { Match } from './game/match';
 import { createCombat, type HeroSetup } from './game/rules';
+import { flashBoot } from './flash/boot';
 import type { CombatState } from './game/types';
 import { api, getToken } from './net/api';
 import { clearCoopRecord, Coop, getCoopRecord, saveCoopRecord } from './net/coop';
@@ -54,6 +57,8 @@ function devTest(): boolean {
 }
 
 async function boot(): Promise<void> {
+  // a FlashGames run: straight into the day's scenario, with no sign-in and no saves (src/flash/boot.ts)
+  if (window.FlashRun?.active) return flashBoot(root);
   if (devTest()) return;
   root.appendChild(h('div.screen.bgwater', h('div.center', { style: { paddingTop: '30vh', color: 'var(--dim)' } }, 'Wading in…')));
   if (getToken()) {

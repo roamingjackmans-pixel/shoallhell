@@ -150,6 +150,8 @@ export class Board {
   private dpr = 1;
   private lastFrame = performance.now();
   focusUid: string | null = null;
+  /** seconds per hex an enemy walks (FlashGames runs make it quicker) */
+  enemyStep = ENEMY_STEP;
 
   /** Show a ping on a hex (from this player or anyone else in the game). */
   ping(x: number, y: number, color: string, label: string): void {
@@ -261,7 +263,7 @@ export class Board {
           d.path = f.path.map((p) => [p[0], p[1]] as [number, number]);
           d.pathT = now;
           [d.px, d.py] = hexPx(f.path[0]![0], f.path[0]![1]);
-          if (u && u.kind !== 'hero') return delay + (f.path.length - 1) * ENEMY_STEP;
+          if (u && u.kind !== 'hero') return delay + (f.path.length - 1) * this.enemyStep;
         }
         break;
       case 'calc': {
@@ -976,7 +978,7 @@ export class Board {
     const d = this.disp.get(u.uid);
     if (!d) return [...hexPx(u.x, u.y), 0];
     if (d.path.length > 1) {
-      const per = u.kind === 'hero' ? HERO_STEP : ENEMY_STEP;
+      const per = u.kind === 'hero' ? HERO_STEP : this.enemyStep;
       const k = (now - d.pathT) / per;
       if (k < 0) {
         // waiting for an earlier effect of the same beat

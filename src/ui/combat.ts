@@ -22,11 +22,24 @@ import { playChime } from './sound';
 const EL_GLYPH: Record<Elem, string> = { fire: '🔥', magic: '✦', void: '◐', holy: '☀' };
 const EL_COLOR: Record<Elem, string> = { fire: 'var(--fire)', magic: 'var(--magic)', void: 'var(--void)', holy: 'var(--holy)' };
 
-export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatState) => void, onLeave: () => void): () => void {
+/** Extras for a FlashGames run (src/flash/boot.ts); normal play passes none. */
+export interface CombatOpts {
+  /** no Leave button: there is nowhere to leave to */
+  noLeave?: boolean;
+  /** shown in the top bar after the scenario's name, redrawn with it */
+  topExtra?: (s: CombatState) => HTMLElement | null;
+  /** how long the VICTORY / defeat banner shows before onEnd (ms; normally 2200) */
+  endDelay?: number;
+  /** seconds per hex an enemy walks on the board */
+  enemyStep?: number;
+}
+
+export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatState) => void, onLeave: () => void, opts: CombatOpts = {}): () => void {
   clear(root);
   const screen = h('div.screen');
   root.appendChild(screen);
   const board = new Board(screen);
+  if (opts.enemyStep) board.enemyStep = opts.enemyStep;
   const hud = h('div.hud');
   screen.appendChild(hud);
   const top = h('div.topbar');
@@ -239,9 +252,11 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
   // ---------------------------------------------------------------- panels
   function renderTop(s: CombatState): void {
     clear(top);
+    const extra = opts.topExtra?.(s);
     top.append(
-      h('button.tiny', { onclick: () => confirmLeave() }, '☰ Leave'),
+      ...(opts.noLeave ? [] : [h('button.tiny', { onclick: () => confirmLeave() }, '☰ Leave')]),
       h('div.col', { style: { gap: '0' } }, h('div.title', s.scenario.name), h('div.small.dim', `Round ${s.round} · Level ${s.scenario.level} · ${objectiveText(s)}`)),
+      ...(extra ? [extra] : []),
       h('div.grow'),
       h(
         'div.elements',
@@ -981,7 +996,7 @@ export function combatScreen(root: HTMLElement, match: Match, onEnd: (s: CombatS
     banner.appendChild(h('div', { style: { color: won ? '#ffd24a' : '#ff6a5a' } }, title));
     banner.appendChild(h('div', { style: { fontSize: '18px', fontWeight: '400' } }, s.result?.text ?? ''));
     if (!won) banner.appendChild(h('div', { style: { fontSize: '15px', fontWeight: '400', color: 'var(--dim)' } }, DEFEAT_QUIPS[s.round % DEFEAT_QUIPS.length]));
-    setTimeout(() => onEnd(s), 2200);
+    setTimeout(() => onEnd(s), opts.endDelay ?? 2200);
   }
 
   function confirmLeave(): void {

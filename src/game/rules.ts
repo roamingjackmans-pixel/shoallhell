@@ -10,7 +10,7 @@ import { monsterDef, monsterStat, SUMMONS, summonFor, ZONE_MONSTERS } from '../d
 import type { ScenarioDef } from '../data/story';
 import { affinityMult } from '../draw/elements';
 import { enhancedCard, type EnhMap } from './enhance';
-import { generate } from './procgen';
+import { generate, type Generated } from './procgen';
 import { alliesOf, dirIndex, enemiesOf, freeNeighbours, hexCenter, hexDist, hexesWithin, inRange, isHeroSide, key, landing, los, neighbors, pathTo, reach, roomAt, setTile, stepDir, tile, unitAt, unkey } from './grid';
 import { apply as applyMods, baseDeck, drawMods, heroDeck, modLabel, type DeckHolder } from './mods';
 import { chance, pick, rand, shuffle } from './rng';
@@ -23,6 +23,7 @@ import type {
   Elem,
   Fx,
   HeroUnit,
+  HouseRules,
   Card,
   Mod,
   MonsterAbility,
@@ -136,11 +137,23 @@ export function initOf(s: CombatState, u: Unit): number {
 
 // ------------------------------------------------------------------ setup
 
-export function createCombat(sc: ScenarioDef, setups: HeroSetup[], level: number, seed: number, difficulty: Difficulty = 'normal'): CombatState {
+/**
+ * Extras for a fight that is not a normal one (FlashGames): house rules kept in the state, and a hook that may change
+ * the generated map (spawns, pickups) before the first room is revealed. The hook must be deterministic.
+ */
+export interface CombatExtras {
+  house?: HouseRules;
+  shape?: (g: Generated) => void;
+}
+
+export function createCombat(sc: ScenarioDef, setups: HeroSetup[], level: number, seed: number, difficulty: Difficulty = 'normal', extras?: CombatExtras): CombatState {
   const g = generate({ scenario: sc, heroes: setups.length, level, seed, difficulty });
+  extras?.shape?.(g);
+  const house = extras?.house;
   const s: CombatState = {
     v: 1,
     scenario: { id: sc.id, name: sc.name, objective: sc.objective, level, seed, depth: sc.depth, difficulty },
+    ...(house ? { house: { ...house } } : {}),
     map: g.map,
     units: [],
     pickups: g.pickups,
@@ -151,7 +164,7 @@ export function createCombat(sc: ScenarioDef, setups: HeroSetup[], level: number
     heroTurn: null,
     drawn: {},
     decks: {},
-    elements: { fire: 0, magic: 0, void: 0, holy: 0 },
+    elements: house?.freeElements ? { fire: 2, magic: 2, void: 2, holy: 2 } : { fire: 0, magic: 0, void: 0, holy: 0 },
     infusedNow: [],
     monsterMods: baseDeck(),
     monsterModDiscard: [],
@@ -247,10 +260,14 @@ function nextNum(s: CombatState, id: string): number {
 
 function spawnMonster(s: CombatState, id: string, x: number, y: number, elite: boolean, summoned = false): MonsterUnit {
   const def = monsterDef(id);
+  const hr = s.house;
+  if (hr?.allElite && !def.boss) elite = true;
   const base = monsterStat(def, s.scenario.level, elite, heroes(s).length);
   // difficulty: Normal and Hardcore scale monster health
-  const mult = s.scenario.difficulty ? DIFFICULTY_HP[s.scenario.difficulty] : 1;
+  let mult = s.scenario.difficulty ? DIFFICULTY_HP[s.scenario.difficulty] : 1;
+  if (hr) mult *= (hr.monsterHp ?? 1) * (def.boss ? hr.bossHp ?? 1 : 1);
   const stat = { ...base, hp: Math.max(1, Math.round(base.hp * mult)) };
+  if (hr?.monsterRetaliate) stat.retaliate = (stat.retaliate ?? 0) + hr.monsterRetaliate;
   const m: MonsterUnit = {
     uid: `m${++s.fxId}`,
     kind: 'monster',
@@ -349,6 +366,17 @@ function killUnit(s: CombatState, u: Unit, by?: Unit): void {
       if (def.undead) (killer.stats as Record<string, number>).undead = ((killer.stats as Record<string, number>).undead ?? 0) + 1;
       if (def.boss) (killer.stats as Record<string, number>).boss = 1;
     }
+    // house rule: the monster bursts, hurting everything next to it (which can set off more bursts)
+    const blast = s.house?.deathBlast ?? 0;
+    const blastHero = s.house?.deathBlastHero ?? 0;
+    if (blast || blastHero) {
+      const near = s.units.filter((v) => v !== u && !v.dead && !(v.kind === 'hero' && v.exhausted) && hexDist(v.x, v.y, u.x, u.y) === 1);
+      if (near.length) {
+        log(s, `${nameOf(u)} bursts!`, 'dmg');
+        fx(s, { kind: 'text', x: u.x, y: u.y, text: 'BOOM', color: '#ff9a3a' });
+      }
+      for (const v of near) damage(s, v, v.kind === 'hero' ? blastHero : blast);
+    }
   } else log(s, `${nameOf(u)} is destroyed.`, 'bad');
 }
 
@@ -414,6 +442,8 @@ export function spendable(s: CombatState, el: Elem | 'any'): Elem[] {
 
 /** Spend an element if it is up (strong or waning); 'any' takes the strongest. */
 function consume(s: CombatState, el: Elem | 'any'): Elem | null {
+  // house rule: every element is always strong, and spending one leaves it there
+  if (s.house?.freeElements) return spendable(s, el)[0] ?? (el === 'any' ? 'fire' : el);
   if (el === 'any') {
     const best = [...ELEMS].sort((a, b) => s.elements[b] - s.elements[a])[0]!;
     if (s.elements[best] > 0) {
@@ -444,7 +474,8 @@ function usePersist(s: CombatState, h: HeroUnit, a: ActiveCard): void {
     if (lost) {
       h.lost.push(a.card);
       h.stats.lost++;
-    } else h.discard.push(a.card);
+    } else if (s.house?.cardsReturn) h.hand.push(a.card);
+    else h.discard.push(a.card);
     log(s, `${h.name}: ${c.name} runs out.`, 'info');
   }
 }
@@ -610,6 +641,10 @@ export function damageSum(base: number, used: Mod[], aff: number, poisoned: bool
 
 function afterHit(s: CombatState, a: Unit, t: Unit, cond: Cond[], push: number, pull: number): void {
   if (t.dead || (t.kind === 'hero' && t.exhausted)) return;
+  if (s.house?.pushMult) {
+    push *= s.house.pushMult;
+    pull *= s.house.pushMult;
+  }
   const by = t.kind === 'monster' ? heroOf(s, a) : undefined;
   for (const c of cond) {
     if (by && t.kind === 'monster' && NEGATIVE.includes(c) && !t.conds.includes(c) && !monsterDef(t.monster).immune?.includes(c)) bump(by, 'condsGiven');
@@ -790,7 +825,8 @@ function endRound(s: CombatState): void {
     u.retRange = 1;
     if (u.kind !== 'hero') delete u.summoned;
   }
-  for (const el of ELEMS) if (s.elements[el] > 0) s.elements[el] = (s.elements[el] - 1) as 0 | 1;
+  if (s.house?.freeElements) for (const el of ELEMS) s.elements[el] = 2;
+  else for (const el of ELEMS) if (s.elements[el] > 0) s.elements[el] = (s.elements[el] - 1) as 0 | 1;
   const reshuffle = (h: DeckHolder): void => {
     if (h.modDiscard.some((m: Mod) => m.mult)) {
       h.mods.push(...h.modDiscard);
@@ -932,8 +968,11 @@ export function tick(s: CombatState): boolean {
       }
       if (hasCond(h, 'stun') && !h.longRest) {
         log(s, `${h.name} is stunned and loses the turn.`, 'bad');
-        for (const c of h.picked) moveCard(h, c, 'discard');
-        h.hand = h.hand.filter((c) => !h.picked.includes(c));
+        // (house rule: played cards come straight back, so a stunned hero keeps them in hand)
+        if (!s.house?.cardsReturn) {
+          for (const c of h.picked) moveCard(h, c, 'discard');
+          h.hand = h.hand.filter((c) => !h.picked.includes(c));
+        }
         endUnitTurn(s, h);
         nextSlot(s);
         return true;
@@ -1109,7 +1148,7 @@ function monsterTurn(s: CombatState, m: MonsterUnit): void {
 function monsterMoveAttack(s: CombatState, m: MonsterUnit, ab: MonsterAbility): void {
   const stat = m.stat;
   const range = ab.range ?? stat.range;
-  const moveN = ab.move === null ? 0 : Math.max(0, stat.move + ab.move);
+  const moveN = ab.move === null ? 0 : Math.max(0, stat.move + ab.move + (s.house?.allMove ?? 0));
   const canMove = moveN > 0 && !hasCond(m, 'immobilize');
   const attackRange = ab.blue ? Math.max(1, range) : range;
   const focus = findFocus(s, m, attackRange, moveN, !!ab.jump || !!monsterDef(m.monster).flying);
@@ -1145,11 +1184,12 @@ function monsterMoveAttack(s: CombatState, m: MonsterUnit, ab: MonsterAbility): 
   if (ab.atk === null || hasCond(m, 'disarm')) return;
   const base = Math.max(0, stat.atk + ab.atk);
   const cond = [...(stat.cond ?? []), ...(ab.cond ?? [])];
+  const push = (ab.push ?? 0) + (s.house?.monsterPush ?? 0);
   const opts: AttackOpts = {
     base,
     ranged: range > 0,
     cond,
-    ...(ab.push ? { push: ab.push } : {}),
+    ...(push ? { push } : {}),
     ...(ab.pull ? { pull: ab.pull } : {}),
     ...(ab.type ? { type: ab.type } : {}),
     ...(ab.red ? { red: true } : {}),
@@ -1195,8 +1235,9 @@ function summonTurn(s: CombatState, u: SummonUnit): void {
   }
   if (u.stat.atk > 0) {
     const ab: MonsterAbility = { name: 'Attack', init: 0, move: 0, atk: 0 };
-    const focus = findFocus(s, u, u.stat.range, u.stat.move, false);
-    if (focus?.dest && u.stat.move > 0 && !hasCond(u, 'immobilize')) walk(s, u, focus.dest, u.stat.move, false);
+    const sMove = u.stat.move > 0 ? u.stat.move + (s.house?.allMove ?? 0) : 0;
+    const focus = findFocus(s, u, u.stat.range, sMove, false);
+    if (focus?.dest && sMove > 0 && !hasCond(u, 'immobilize')) walk(s, u, focus.dest, sMove, false);
     if (focus && !u.dead && !hasCond(u, 'disarm') && inRange(s, u, focus.target, u.stat.range)) {
       u.facing = Math.atan2(focus.target.y - u.y, focus.target.x - u.x);
       attack(s, u, focus.target, { base: u.stat.atk, ranged: u.stat.range > 0, cond: [...(u.stat.cond ?? [])] });
@@ -1322,7 +1363,9 @@ function prepStep(s: CombatState, h: HeroUnit): void {
   // the step could spend an element: the player decides (once per step)
   if (u && cur.elChoice === undefined) {
     const els = spendable(s, u.el);
-    if (els.length) {
+    // house rule: spending is free, so it is never worth keeping: spend without asking
+    if (els.length && s.house?.freeElements) cur.elChoice = els[0]!;
+    else if (els.length) {
       cur.elAsk = els;
       return;
     }
@@ -1344,7 +1387,7 @@ function prepStep(s: CombatState, h: HeroUnit): void {
     }
   }
   if (st.t === 'move') {
-    let n = st.n;
+    let n = st.n + (s.house?.allMove ?? 0);
     for (const p of persists(h, 'move')) {
       n += p.persist.n;
       usePersist(s, h, p);
@@ -1354,7 +1397,7 @@ function prepStep(s: CombatState, h: HeroUnit): void {
       delete h.next.move;
     }
     cur.movesLeft = n;
-    cur.jump = !!st.jump || !!h.next.jump;
+    cur.jump = !!st.jump || !!h.next.jump || !!s.house?.heroJump;
     delete h.next.jump;
   }
 }
@@ -1525,8 +1568,9 @@ function takePickup(s: CombatState, h: HeroUnit, p: (typeof s.pickups)[number]):
   if (p.opened) return;
   p.opened = true;
   bump(h, p.kind === 'coin' ? 'coins' : 'chests');
+  const gm = s.house?.goldMult ?? 1;
   if (p.kind === 'coin') {
-    const g = COIN_VALUE[Math.min(7, s.scenario.level)]!;
+    const g = COIN_VALUE[Math.min(7, s.scenario.level)]! * gm;
     h.gold += g;
     fx(s, { kind: 'loot', uid: h.uid, text: `+${g} gold`, color: '#ffd24a' });
     log(s, `${h.name} picks up ${g} gold.`, 'good');
@@ -1536,7 +1580,7 @@ function takePickup(s: CombatState, h: HeroUnit, p: (typeof s.pickups)[number]):
     fx(s, { kind: 'loot', uid: h.uid, text: ITEMS[p.item]!.name, color: '#ffd24a' });
     log(s, `${h.name} opens a chest: ${ITEMS[p.item]!.name}!`, 'good');
   } else {
-    const g = p.gold ?? 10;
+    const g = (p.gold ?? 10) * gm;
     h.gold += g;
     fx(s, { kind: 'loot', uid: h.uid, text: `+${g} gold`, color: '#ffd24a' });
     log(s, `${h.name} opens a chest: ${g} gold.`, 'good');
@@ -1549,7 +1593,7 @@ function heroAttack(s: CombatState, h: HeroUnit, st: Extract<Step, { t: 'attack'
   const b = bonusOf(s);
   h.facing = Math.atan2(t.y - h.y, t.x - h.x);
   attack(s, h, t, {
-    base: st.n + (b?.n ?? 0),
+    base: st.n + (b?.n ?? 0) + (s.house?.heroAtk ?? 0),
     ranged: st.range > 0,
     pierce: (st.pierce ?? 0) + (b?.pierce ?? 0),
     cond: [...(st.cond ?? []), ...(b?.cond ?? [])],
@@ -1590,7 +1634,8 @@ function endHeroTurn(s: CombatState, h: HeroUnit): void {
     if (lostHalf) {
       h.lost.push(c);
       h.stats.lost++;
-    } else h.discard.push(c);
+    } else if (s.house?.cardsReturn) h.hand.push(c);
+    else h.discard.push(c);
   }
   // end-of-turn loot: coins and chests on the hero's own tile
   const here = s.pickups.filter((p) => p.x === h.x && p.y === h.y);

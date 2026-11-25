@@ -433,9 +433,46 @@ export type Objective =
   | { kind: 'survive'; rounds: number }
   | { kind: 'destroy'; monster: string; count: number };
 
+/**
+ * Rule changes for a whole fight, used by FlashGames modifiers (src/flash/). Plain JSON; normal play has none, and
+ * every field left out means the normal rule.
+ */
+export interface HouseRules {
+  /** every monster that appears is an Elite (bosses excepted) */
+  allElite?: boolean;
+  /** monster maximum HP multiplier (bosses too) */
+  monsterHp?: number;
+  /** extra boss maximum HP multiplier */
+  bossHp?: number;
+  /** Retaliate every monster has on top of its own */
+  monsterRetaliate?: number;
+  /** added to every attack a hero makes */
+  heroAtk?: number;
+  /** every element is always strong, and spending one is free (and automatic) */
+  freeElements?: boolean;
+  /** pushes and pulls go this many times as far */
+  pushMult?: number;
+  /** every monster attack pushes this many hexes (before pushMult) */
+  monsterPush?: number;
+  /** added to every move: heroes' moves, monsters' moving abilities and summons */
+  allMove?: number;
+  /** every hero move is a jump */
+  heroJump?: boolean;
+  /** a monster that dies deals this much damage to every monster and summon next to it */
+  deathBlast?: number;
+  /** ...and this much to every hero next to it */
+  deathBlastHero?: number;
+  /** cards played go straight back to the hand instead of the discard pile (lost halves are still lost) */
+  cardsReturn?: boolean;
+  /** coins and chest gold are worth this many times as much */
+  goldMult?: number;
+}
+
 export interface CombatState {
   v: number;
   scenario: ScenarioRun;
+  /** rule changes for this fight (FlashGames modifiers); absent in normal play */
+  house?: HouseRules;
   map: MapData;
   units: Unit[];
   pickups: Pickup[];

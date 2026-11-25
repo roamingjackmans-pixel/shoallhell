@@ -25,6 +25,8 @@ export class Match {
   private lastPing = -Infinity;
   /** speed multiplier for monster turns (settings) */
   speed = 1;
+  /** a FlashGames run whose time is up: nothing runs and every action is ignored */
+  frozen = false;
 
   constructor(
     public sc: ScenarioDef,
@@ -137,6 +139,7 @@ export class Match {
 
   /** Send a player action. Returns an error message for solo/host; guests hear back through the state. */
   intent(i: Intent): string | null {
+    if (this.frozen) return null;
     if (this.role === 'guest') {
       this.coop?.toHost({ type: 'intent', intent: i });
       return null;
@@ -155,7 +158,7 @@ export class Match {
     if (this.role === 'guest' || this.pumping || this.destroyed) return;
     this.pumping = true;
     const beat = (): void => {
-      if (this.destroyed) return;
+      if (this.destroyed || this.frozen) return;
       const before = this.state.order[this.state.turnIdx];
       const did = tick(this.state);
       if (!did) {

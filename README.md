@@ -105,7 +105,64 @@ four players, with email + password accounts.
 The same accounts, friends, presence, invites and lobby relay serve **Smash Your Bros** (game id `syb`, saves at
 `/api/syb/*`) and **Baker's Dozen** (game id `bd`, saves at `/api/bd/*`, plus a per-day board at `/api/bd/daily`
 that shows you and your friends). Their pages live in their own repos; their server side ships with this one
-(`fly deploy`).
+(`fly deploy`). So do the **FlashGames** boards (`server/flashgames.js`, at `/api/fg/*`): the day's plan (uploaded
+with the `FG_ADMIN_TOKEN` key from the owner's PC), runs and their 15-minute clock, you-and-your-friends boards,
+medals and a year of daily bests.
+
+## FlashGames mode
+
+Shoallhell is in the rotation of **FlashGames** (josephjackman.com/games/flashgames/), the daily 15-minute speedrun:
+each day one game and 2–3 modifiers, the same seeded run for everyone. The contract is the FlashGames repo's
+`docs/PROTOCOL.md`; its SDK is copied unchanged into `src/flash/flash-run.js` (+ `.d.ts`), and `public/flash.json`
+(served as `/games/shoallhell/flash.json`) lists the modifiers.
+
+Opened with `?flash=<code>`, the game skips sign-in, the hall, recruiting, lobbies and the server, and **saves
+nothing**: it never reads or writes the account, offline saves, campaigns, unlocks, Tasks, records, recent games,
+the resume slot or the co-op record. The run:
+
+- **The party** is two different classes and a level (2 or 3) from `FlashRun.rng('party')`, as a player would have
+  built them: their level-1 cards plus one level-up card per level, a perk per level-up, no items.
+- **The scenarios** chain without a break: clear the rooms, escape, boss fight, clear, escape, boss… Each one is a
+  Depth deeper (to 9) with monsters a level higher (to 7), on Normal, its map built from the day's seed. Win one and
+  the next starts at once; the score keeps adding up. Heroes start every scenario fresh (full health, full hand).
+- **The run ends** when the whole party is exhausted (`over(score, …, 'dead')`) or the time is up (the board freezes
+  and shows the final score). A goal met in the last round before time runs out still counts as a win.
+- **Monster turns** run about three times as fast as normal (0.5 s a beat, quicker walking); no story screens.
+
+| id | Modifier | What it does |
+|---|---|---|
+| `elite` | Elite Squad | Every monster is an Elite, even the ones that turn up later. |
+| `glass` | Glass Cannon | Every hero has 2 max HP, but every hero attack gets +3. (Not with Thorny Situation or Volatile Tide.) |
+| `blessed` | Blessed Day | 15 Bless cards (×2) in every hero's modifier deck at the start of each scenario. |
+| `coinflip` | Coin Flip | Every modifier deck, heroes' and monsters', is ten ×2 and ten ×0. |
+| `glowen` | Glowen Flood | All four elements are always strong; card bonuses that spend one are free (and spent automatically). |
+| `fullhand` | Full Deck | Heroes bring every card their class has, every level (about 21). (Not with Bottomless Hand.) |
+| `veterans` | Veterans | The heroes are level 5: full health, best cards, four perks. The monsters don't level up with them. |
+| `clearance` | Gary's Clearance | Every hero starts with a helmet, chest, shoes, hand items and two potions from Gary's whole stall. |
+| `bossrush` | Boss Rush | Every room after the first holds a boss (at half health) and half of its usual pack. |
+| `swarm` | Swarm Season | Twice as many monsters, each with half the health. |
+| `shove` | Big Shove | Monster attacks push 1, and every push and pull goes twice as far. |
+| `thorns` | Thorny Situation | Every monster has Retaliate 2. |
+| `rush` | Rush Hour | Everyone moves 2 further, and every hero move is a Jump. |
+| `volatile` | Volatile Tide | Dying monsters burst: 2 damage to every monster next to them, 1 to every hero. Chains. |
+| `bottomless` | Bottomless Hand | Played cards go straight back to the hand; only LOST halves are gone. |
+| `goldrush` | Gold Rush | Three times the coins, a chest in every room, all gold worth double. |
+
+**Scoring** (a whole number that never goes down): 100 per monster killed (Elites 200, bosses 1,000), 150 per door
+opened, 10 per gold picked up. Every scenario won adds 1,000 × its Depth, 50 per round under 12, and 10 per HP and
+20 per card (hand + discard) that the heroes still standing have left. The detail line reads like
+`Scenario 3 · Depth 3 · 2 won · 21 kills · 20 gold`. `flash.json` caps scores at 1,000,000 and picks 2–3 modifiers a day.
+
+Try it: `npx vite`, make a code with `node C:\dev\FlashGames\sdk\make-flash-url.mjs elite,shove 12345 120`, and open
+`http://localhost:5174/games/shoallhell/?flash=<code>` (on its own it starts a second after loading and ends after
+the given seconds). In development `window.__match` is the running fight.
+
+Code: `src/flash/mods.ts` is the modifier list and the house rules each one sets; `public/flash.json` must match it
+(`tests/flash.test.ts` checks; regenerate with
+`node -e "import('./src/flash/mods.ts').then(m=>require('fs').writeFileSync('public/flash.json',JSON.stringify(m.flashJson(),null,2)+'\n'))"`).
+`src/flash/run.ts` builds the party, the scenario chain, the map changes and the score without the browser;
+`src/flash/boot.ts` puts it on screen. The engine sees modifiers only as `CombatState.house` (`HouseRules` in
+`src/game/types.ts`: plain JSON, absent in normal play) and the optional `extras` of `createCombat`.
 
 ## Run it locally
 
@@ -150,6 +207,7 @@ src/data/      classes, cards (one file per class), monsters (converted from Dun
 src/draw/      Dungeon Joe's vector art, copied as-is (enemies, bosses, Joe, weapons, props)
 src/render/    the battle board, hero drawing, The Executor
 src/ui/        sign-in, hall, recruit, character sheet, combat HUD, lobby, results, story cards
+src/flash/     FlashGames mode (?flash=): the SDK, the modifiers, the run and its screen
 server/        Express + Socket.IO: email/password accounts (scrypt), profile saves, co-op rooms, friends and presence
 docs/          CARD_DESIGN.md (how cards are written)
 ```
