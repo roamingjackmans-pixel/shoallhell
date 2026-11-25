@@ -78,13 +78,13 @@ describe('FlashGames', () => {
   const runIds: Record<string, string> = {};
 
   it('needs the admin key to upload plans, and keeps past days closed', async () => {
-    for (const n of ['ann', 'bob', 'cat']) {
+    for (const n of ['ann', 'bob', 'cat', 'dan']) {
       const r = await call('POST', '/signup', { email: `${n}@fg.test`, password: 'password123', name: n });
       expect(r.status).toBe(200);
       tok[n] = r.data.token;
       ids[n] = r.data.user.id;
     }
-    // ann is friends with bob and cat; bob and cat are not friends
+    // ann is friends with bob and cat; bob and cat are not friends; dan has no friends
     const codes: Record<string, string> = {};
     for (const n of ['ann', 'bob', 'cat']) codes[n] = (await call('GET', '/friends', undefined, tok[n])).data.code;
     await call('POST', '/friends/add', { code: codes.bob }, tok.ann);
@@ -128,6 +128,7 @@ describe('FlashGames', () => {
     for (const [n, s] of [
       ['bob', 800],
       ['cat', 200],
+      ['dan', 50],
     ] as const) {
       const run = (await call('POST', '/fg/runs', {}, tok[n])).data.run;
       await call('POST', `/fg/runs/${run}/go`, {}, tok[n]);
@@ -143,7 +144,7 @@ describe('FlashGames', () => {
       ['cat', 3],
     ]);
     expect(a.data.me.best).toBe(500);
-    expect(a.data.players).toBe(3);
+    expect(a.data.players).toBe(4);
     const b = await call('GET', '/fg/today', undefined, tok.bob);
     expect(b.data.board.map((r: { name: string }) => r.name)).toEqual(['bob', 'ann']);
   });
@@ -166,6 +167,30 @@ describe('FlashGames', () => {
     // bob's circle is bob and ann: gold. cat's is cat and ann: 2nd of 2 is silver.
     expect((await call('GET', '/fg/today', undefined, tok.bob)).data.stats.medals).toEqual({ gold: 1, silver: 0, bronze: 0 });
     expect((await call('GET', '/fg/today', undefined, tok.cat)).data.stats.medals).toEqual({ gold: 0, silver: 1, bronze: 0 });
+    // none of dan's friends played: alone is 1st, and a gold
+    const d = await call('GET', '/fg/today', undefined, tok.dan);
+    expect(d.data.yesterday.board.map((r: { name: string; place: number; medal: string | null }) => [r.name, r.place, r.medal])).toEqual([['dan', 1, 'gold']]);
+    expect(d.data.stats.medals).toEqual({ gold: 1, silver: 0, bronze: 0 });
+  });
+
+  it('shows any day that is over, never today or a later one', async () => {
+    const day = await call('GET', '/fg/day?date=2026-11-24', undefined, tok.ann);
+    expect(day.status).toBe(200);
+    expect(day.data.plan.title).toBe('Test day 2026-11-24');
+    expect(day.data.plan.seed).toBeUndefined();
+    expect(day.data.players).toBe(4);
+    expect(day.data.board.map((r: { name: string; medal: string | null; me: boolean }) => [r.name, r.medal, r.me])).toEqual([
+      ['bob', 'gold', false],
+      ['ann', 'silver', true],
+      ['cat', 'bronze', false],
+    ]);
+    expect((await call('GET', '/fg/day?date=2026-11-24', undefined, tok.dan)).data.board.map((r: { name: string }) => r.name)).toEqual(['dan']);
+    // today, a later day (secret), a day with no run, nonsense, and nobody signed in
+    expect((await call('GET', '/fg/day?date=2026-11-25', undefined, tok.ann)).status).toBe(400);
+    expect((await call('GET', '/fg/day?date=2026-11-26', undefined, tok.ann)).status).toBe(400);
+    expect((await call('GET', '/fg/day?date=2026-11-20', undefined, tok.ann)).status).toBe(404);
+    expect((await call('GET', '/fg/day?date=yesterday', undefined, tok.ann)).status).toBe(400);
+    expect((await call('GET', '/fg/day?date=2026-11-24')).status).toBe(401);
   });
 
   it('shows a year of daily bests to you and your friends', async () => {
@@ -187,6 +212,6 @@ describe('FlashGames', () => {
     expect(t.data.plan.title).toMatch(/^Encore: /);
     const list = await call('GET', '/fg/admin/plans', undefined, undefined, ADMIN);
     expect(list.data.plans.map((p: { date: string }) => p.date)).toEqual(['2026-11-24', '2026-11-25', '2026-11-27']);
-    expect(list.data.plans[0].players).toBe(3);
+    expect(list.data.plans[0].players).toBe(4);
   });
 });

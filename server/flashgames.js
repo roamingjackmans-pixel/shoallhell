@@ -10,8 +10,8 @@
 //   fg/users/<id>.json      a year of daily bests, and medals forever
 //   fg/meta.json            which days have plans and boards, and which boards are settled (medals given out)
 //
-// Days roll over at midnight US Central. Places are among you and your friends who played that day: 1st and 2nd
-// count when at least two of you played, 3rd when at least three did.
+// Days roll over at midnight US Central. Places are among you and your friends who played that day, and the top
+// three get medals: playing alone (none of your friends played) is 1st and a gold.
 import crypto from 'node:crypto';
 import { randomId } from './security.js';
 import { load, put, save } from './store.js';
@@ -175,10 +175,33 @@ function ranked(date, ids) {
   return rows;
 }
 
-const medalFor = (place, field) => (place <= 3 && field >= Math.max(2, place) ? ['gold', 'silver', 'bronze'][place - 1] : null);
+const medalFor = (place) => (place >= 1 && place <= 3 ? ['gold', 'silver', 'bronze'][place - 1] : null);
+const MEDAL_RULE = 2; // 1: 1st and 2nd needed two players, 3rd three (2026-11-23 to 11-25); 2: the top three, alone or not
+
+/** days settled under an older medal rule get their medals again under today's (once) */
+function remedal() {
+  const m = meta();
+  if ((m.medalRule ?? 1) >= MEDAL_RULE) return;
+  for (const date of m.settled) {
+    for (const id of Object.keys(board(date))) {
+      const u = userRec(id);
+      const day = u.days[date];
+      if (!day || day.place == null) continue;
+      const want = medalFor(day.place);
+      if ((day.medal ?? null) === want) continue;
+      if (day.medal) u.medals[day.medal] = Math.max(0, u.medals[day.medal] - 1);
+      if (want) u.medals[want]++;
+      day.medal = want;
+      save(userDoc(id));
+    }
+  }
+  m.medalRule = MEDAL_RULE;
+  save(META);
+}
 
 /** give out the medals for every day that has closed and isn't settled yet */
 export function settleDue(friendIds) {
+  remedal();
   const m = meta();
   const t = now();
   for (const date of m.boards) {
@@ -188,7 +211,7 @@ export function settleDue(friendIds) {
       const rows = ranked(date, [id, ...friendIds(id)]);
       const me = rows.find((r) => r.userId === id);
       if (!me) continue;
-      const medal = medalFor(me.place, rows.length);
+      const medal = medalFor(me.place);
       const u = userRec(id);
       const day = u.days[date];
       if (day) {
@@ -244,6 +267,24 @@ export function mountFlashGames(api, { requireUser, userForToken, friendIds, get
     return h.startsWith('Bearer ') ? userForToken(h.slice(7)) : null;
   };
 
+  /** `user` and their friends on a day's board, best first; `medals` for a day that is over */
+  const boardFor = (date, user, medals) =>
+    ranked(date, [user.id, ...friendIds(user.id)]).map((r) => ({
+      userId: r.userId,
+      name: getUser(r.userId)?.name || r.name,
+      score: r.score,
+      detail: r.detail,
+      runs: r.runs,
+      place: r.place,
+      me: r.userId === user.id,
+      ...(medals ? { medal: medalFor(r.place) } : {}),
+    }));
+  /** a day that is over: its plan, and you and your friends on its board */
+  const pastDay = (date, user) => {
+    const p = getPlan(date);
+    return p && { date, plan: publicPlan(p), players: Object.keys(board(date)).length, board: boardFor(date, user, true) };
+  };
+
   /** today's run, and (signed in) you and your friends on today's and yesterday's boards, and your medals */
   api.get('/fg/today', (req, res) => {
     settle();
@@ -252,20 +293,24 @@ export function mountFlashGames(api, { requireUser, userForToken, friendIds, get
     const user = optionalUser(req);
     const out = { date, serverNow: now(), endsAt: dayEnd(date), limit: LIMIT_S, plan: publicPlan(plan), players: Object.keys(board(date)).length };
     if (user) {
-      const ids = [user.id, ...friendIds(user.id)];
-      const mark = (rows) => rows.map((r) => ({ userId: r.userId, name: getUser(r.userId)?.name || r.name, score: r.score, detail: r.detail, runs: r.runs, place: r.place, me: r.userId === user.id }));
-      out.board = mark(ranked(date, ids));
+      out.board = boardFor(date, user, false);
       const mine = board(date)[user.id];
       out.me = { id: user.id, name: user.name, best: mine?.score ?? null, detail: mine?.detail ?? '', runs: mine?.runs ?? 0 };
-      const y = prevDay(date);
-      const yPlan = getPlan(y);
-      if (yPlan) {
-        const rows = ranked(y, ids);
-        out.yesterday = { date: y, plan: publicPlan(yPlan), players: Object.keys(board(y)).length, board: mark(rows).map((r) => ({ ...r, medal: medalFor(r.place, rows.length) })) };
-      }
+      const y = pastDay(prevDay(date), user);
+      if (y) out.yesterday = y;
       out.stats = statsOf(userRec(user.id));
     }
     res.json(out);
+  });
+
+  /** any day that is over (never today or later: plans are secret until their day) */
+  api.get('/fg/day', requireUser, (req, res) => {
+    settle();
+    const date = String(req.query.date || '');
+    if (!DAY.test(date) || date >= today()) return res.status(400).json({ error: 'Pick a day that is over.' });
+    const d = pastDay(date, req.user);
+    if (!d) return res.status(404).json({ error: 'There was no run that day.' });
+    res.json(d);
   });
 
   /** start a run of today's plan; the answer has the ?flash= code for the game */
