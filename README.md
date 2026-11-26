@@ -103,8 +103,10 @@ four players, with email + password accounts.
 ## Other games on this server
 
 The same accounts, friends, presence, invites and lobby relay serve **Smash Your Bros** (game id `syb`, saves at
-`/api/syb/*`) and **Baker's Dozen** (game id `bd`, saves at `/api/bd/*`, plus a per-day board at `/api/bd/daily`
-that shows you and your friends). Their pages live in their own repos; their server side ships with this one
+`/api/syb/*`), **Baker's Dozen** (game id `bd`, saves at `/api/bd/*`, plus a per-day board at `/api/bd/daily`
+that shows you and your friends) and **She's A Keeper** (game id `sak`, saves at `/api/sak/*`, plus the Daily Catch
+board at `/api/sak/daily`; its co-op uses the same host/guest relay). Their pages live in their own repos; their
+server side ships with this one
 (`fly deploy`). So do the **FlashGames** boards (`server/flashgames.js`, at `/api/fg/*`): the day's plan (uploaded
 with the `FG_ADMIN_TOKEN` key from the owner's PC), runs and their 15-minute clock, you-and-your-friends boards,
 medals and a year of daily bests.

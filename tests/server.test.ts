@@ -192,6 +192,45 @@ describe('server', () => {
     shoalGuest.disconnect();
   });
 
+  it("She's A Keeper: separate save, a Daily Catch board for you and your friends, sak-tagged co-op lobbies", async () => {
+    const empty = await fetch(`${BASE}/api/sak/me`, { headers: { Authorization: `Bearer ${tokA}` } }).then((r) => r.json());
+    expect(empty.profile).toBe(null);
+    const saved = await post('/sak/profile', { profile: { v: 1, owned: ['bamboo', 'carbon'] }, rev: 0 }, tokA, 'PUT');
+    expect(saved.data.rev).toBe(1);
+    const stale = await post('/sak/profile', { profile: { v: 1, owned: [] }, rev: 0 }, tokA, 'PUT');
+    expect(stale.status).toBe(409);
+    expect(stale.data.profile.owned).toEqual(['bamboo', 'carbon']);
+    const shoal = await fetch(`${BASE}/api/me`, { headers: { Authorization: `Bearer ${tokA}` } }).then((r) => r.json());
+    expect(shoal.profile?.owned).toBeUndefined();
+    // the daily: only a better score replaces yours; bad dates and absurd scores are refused
+    expect((await post('/sak/daily', { date: '2026-11-25', score: 4200, best: '48 cm Largemouth Bass', fish: 21 }, tokA)).data.best).toBe(4200);
+    expect((await post('/sak/daily', { date: '2026-11-25', score: 3000, best: 'x', fish: 5 }, tokA)).data.best).toBe(4200);
+    expect((await post('/sak/daily', { date: 'yesterday', score: 10 }, tokA)).status).toBe(400);
+    expect((await post('/sak/daily', { date: '2026-11-25', score: 9e9 }, tokA)).status).toBe(400);
+    const board = await fetch(`${BASE}/api/sak/daily?date=2026-11-25`, { headers: { Authorization: `Bearer ${tokA}` } }).then((r) => r.json());
+    expect(board.rows[0]).toMatchObject({ score: 4200, best: '48 cm Largemouth Bass', fish: 21, me: true });
+    // a fishing lobby relays host and guest messages, and only She's A Keeper can join it
+    const host = await connect(tokA, 'sak');
+    const room = await new Promise<{ code: string; game: string }>((res) => host.emit('host:create', { chars: [] }, (r: { room: { code: string; game: string } }) => res(r.room)));
+    expect(room.game).toBe('sak');
+    const bd = await connect(tokB, 'bd');
+    const wrong = await new Promise<{ error?: string }>((res) => bd.emit('room:join', { code: room.code, chars: [] }, res));
+    expect(wrong.error).toMatch(/She's A Keeper/);
+    const guest = await connect(tokB, 'sak');
+    const joined = await new Promise<{ ok?: boolean }>((res) => guest.emit('room:join', { code: room.code, chars: [] }, res));
+    expect(joined.ok).toBe(true);
+    const toHost = new Promise<{ msg: { t: string } }>((res) => host.once('guest:msg', res));
+    guest.emit('guest:msg', { t: 'claim', id: 3 });
+    expect((await toHost).msg.t).toBe('claim');
+    const toGuest = new Promise<{ t: string }>((res) => guest.once('host:msg', res));
+    host.emit('host:msg', { t: 'world', s: { t: 12 } });
+    expect((await toGuest).t).toBe('world');
+    host.emit('room:leave');
+    host.disconnect();
+    guest.disconnect();
+    bd.disconnect();
+  });
+
   it('refuses sockets without a session', async () => {
     await expect(connect('nope')).rejects.toBeTruthy();
   });

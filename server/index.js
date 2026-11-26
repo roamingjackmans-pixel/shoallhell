@@ -20,7 +20,7 @@ import { mountFlashGames } from './flashgames.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3031);
 const BASE = '/games/shoallhell';
-const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:5177,http://127.0.0.1:5177')
+const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:5177,http://127.0.0.1:5177,http://localhost:5178,http://127.0.0.1:5178')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -48,9 +48,11 @@ const profileName = (id) => `profiles/${id}.json`;
 const sybProfileName = (id) => `profiles/syb/${id}.json`;
 // Baker's Dozen (josephjackman.com/games/bakersdozen/) too, with its own save and a daily-challenge board.
 const bdProfileName = (id) => `profiles/bd/${id}.json`;
+// She's A Keeper (josephjackman.com/games/shesakeeper/) as well, with its own save and a Daily Catch board.
+const sakProfileName = (id) => `profiles/sak/${id}.json`;
 /** the games that use this server; sockets say which one they are (handshake auth.game) */
-const GAMES = new Set(['shoallhell', 'syb', 'bd']);
-const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros', bd: "Baker's Dozen" };
+const GAMES = new Set(['shoallhell', 'syb', 'bd', 'sak']);
+const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros', bd: "Baker's Dozen", sak: "She's A Keeper" };
 
 api.get('/ping', (_req, res) => res.json({ ok: true, name: 'shoallhell' }));
 
@@ -144,6 +146,47 @@ api.post('/bd/daily', requireUser, (req, res) => {
   if (!prev || score > prev.score) {
     board[req.user.id] = { name: req.user.name, score, baker: String(req.body?.baker || '').slice(0, 20), survived: !!req.body?.survived, at: Date.now() };
     put(dailyName(date), board);
+  }
+  res.json({ ok: true, best: board[req.user.id].score });
+});
+
+// She's A Keeper (josephjackman.com/games/shesakeeper/): its own save and a Daily Catch board, same rules as above.
+api.get('/sak/me', requireUser, (req, res) => {
+  const doc = load(sakProfileName(req.user.id), { rev: 0, profile: null });
+  res.json({ user: publicUser(req.user), profile: doc.profile, rev: doc.rev });
+});
+
+api.put('/sak/profile', requireUser, (req, res) => {
+  const { profile, rev } = req.body || {};
+  if (!profile || typeof profile !== 'object') return res.status(400).json({ error: 'No profile.' });
+  if (JSON.stringify(profile).length > MAX_PROFILE) return res.status(413).json({ error: 'Save is too large.' });
+  const doc = load(sakProfileName(req.user.id), { rev: 0, profile: null });
+  if (typeof rev === 'number' && doc.profile && rev !== doc.rev) return res.status(409).json({ error: 'Your save changed on another device. Reload to get the newest one.', rev: doc.rev, profile: doc.profile });
+  const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
+  put(sakProfileName(req.user.id), next);
+  res.json({ rev: next.rev });
+});
+
+const sakDailyName = (date) => `sak/daily/${date}.json`;
+api.get('/sak/daily', requireUser, (req, res) => {
+  const date = String(req.query.date || '');
+  if (!DAY.test(date)) return res.status(400).json({ error: 'Bad date.' });
+  const board = load(sakDailyName(date), {});
+  const ids = [req.user.id, ...friendIds(req.user.id)];
+  const rows = ids.filter((id) => board[id]).map((id) => ({ userId: id, ...board[id], me: id === req.user.id }));
+  rows.sort((a, b) => b.score - a.score);
+  res.json({ date, rows });
+});
+api.post('/sak/daily', requireUser, (req, res) => {
+  const date = String(req.body?.date || '');
+  const score = Math.floor(Number(req.body?.score));
+  if (!DAY.test(date) || !Number.isFinite(score) || score < 0 || score > 5_000_000) return res.status(400).json({ error: 'Bad score.' });
+  const board = load(sakDailyName(date), {});
+  const prev = board[req.user.id];
+  if (!prev || score > prev.score) {
+    const fish = Math.max(0, Math.min(999, Math.floor(Number(req.body?.fish)) || 0));
+    board[req.user.id] = { name: req.user.name, score, best: String(req.body?.best || '').slice(0, 40), fish, at: Date.now() };
+    put(sakDailyName(date), board);
   }
   res.json({ ok: true, best: board[req.user.id].score });
 });
