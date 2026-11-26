@@ -109,3 +109,23 @@ export function requireUser(req, res, next) {
   req.token = token;
   next();
 }
+
+/** The account for an email (any case), or null. */
+export function userByEmail(email) {
+  const db = users();
+  const id = db.byEmail[String(email || '').trim().toLowerCase()];
+  return (id && db.users[id]) || null;
+}
+
+/** Set a new password (password reset). */
+export function setPassword(u, password) {
+  u.pass = hashPassword(password);
+  save(USERS);
+}
+
+/** Sign an account out everywhere (after a password reset). */
+export function revokeSessions(userId) {
+  const s = sessions();
+  for (const k of Object.keys(s)) if (s[k].userId === userId) delete s[k];
+  save(SESSIONS);
+}

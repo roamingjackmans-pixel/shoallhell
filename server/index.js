@@ -16,11 +16,12 @@ import { changePassword, getUser, issueSession, login, logout, publicUser, renam
 import { accept as acceptFriend, addByCode, areFriends, drop as dropFriend, friendIds, friendsView } from './friends.js';
 import { flush, load, put } from './store.js';
 import { mountFlashGames } from './flashgames.js';
+import { mountReset } from './reset.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3031);
 const BASE = '/games/shoallhell';
-const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:5177,http://127.0.0.1:5177,http://localhost:5178,http://127.0.0.1:5178')
+const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:5177,http://127.0.0.1:5177,http://localhost:5178,http://127.0.0.1:5178,http://localhost:5180,http://127.0.0.1:5180,http://localhost:4180,http://127.0.0.1:4180')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -48,11 +49,13 @@ const profileName = (id) => `profiles/${id}.json`;
 const sybProfileName = (id) => `profiles/syb/${id}.json`;
 // Baker's Dozen (josephjackman.com/games/bakersdozen/) too, with its own save and a daily-challenge board.
 const bdProfileName = (id) => `profiles/bd/${id}.json`;
+// Relentless Tear (josephjackman.com/games/RelentlessTear/) too: three save slots, Tasks and classes in one profile.
+const rtProfileName = (id) => `profiles/rt/${id}.json`;
 // She's A Keeper (josephjackman.com/games/shesakeeper/) as well, with its own save and a Daily Catch board.
 const sakProfileName = (id) => `profiles/sak/${id}.json`;
 /** the games that use this server; sockets say which one they are (handshake auth.game) */
-const GAMES = new Set(['shoallhell', 'syb', 'bd', 'sak']);
-const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros', bd: "Baker's Dozen", sak: "She's A Keeper" };
+const GAMES = new Set(['shoallhell', 'syb', 'bd', 'sak', 'rt']);
+const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros', bd: "Baker's Dozen", sak: "She's A Keeper", rt: 'Relentless Tear' };
 
 api.get('/ping', (_req, res) => res.json({ ok: true, name: 'shoallhell' }));
 
@@ -122,6 +125,23 @@ api.put('/bd/profile', requireUser, (req, res) => {
   if (typeof rev === 'number' && doc.profile && rev !== doc.rev) return res.status(409).json({ error: 'Your save changed on another device. Reload to get the newest one.', rev: doc.rev, profile: doc.profile });
   const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
   put(bdProfileName(req.user.id), next);
+  res.json({ rev: next.rev });
+});
+
+api.get('/rt/me', requireUser, (req, res) => {
+  const doc = load(rtProfileName(req.user.id), { rev: 0, profile: null });
+  res.json({ user: publicUser(req.user), profile: doc.profile, rev: doc.rev });
+});
+
+/** Relentless Tear save, same revision check as Shoallhell's */
+api.put('/rt/profile', requireUser, (req, res) => {
+  const { profile, rev } = req.body || {};
+  if (!profile || typeof profile !== 'object') return res.status(400).json({ error: 'No profile.' });
+  if (JSON.stringify(profile).length > MAX_PROFILE) return res.status(413).json({ error: 'Save is too large.' });
+  const doc = load(rtProfileName(req.user.id), { rev: 0, profile: null });
+  if (typeof rev === 'number' && doc.profile && rev !== doc.rev) return res.status(409).json({ error: 'Your save changed on another device. Reload to get the newest one.', rev: doc.rev, profile: doc.profile });
+  const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
+  put(rtProfileName(req.user.id), next);
   res.json({ rev: next.rev });
 });
 
@@ -202,6 +222,9 @@ api.post('/name', requireUser, (req, res) => {
   if (r.error) return res.status(r.status).json({ error: r.error });
   res.json({ ok: true, user: publicUser(req.user) });
 });
+
+// Forgot password: emailed codes (reset.js)
+mountReset(api);
 
 // FlashGames (josephjackman.com/games/flashgames/): the daily speedrun boards, see flashgames.js
 mountFlashGames(api, { requireUser, userForToken, friendIds, getUser });
