@@ -211,6 +211,53 @@ api.post('/sak/daily', requireUser, (req, res) => {
   res.json({ ok: true, best: board[req.user.id].score });
 });
 
+/**
+ * She's A Keeper's leaderboard: you and your friends, from each save's records (best run ever, this week's best,
+ * the fish log) and today's Daily Catch board. `date` is the game's today (US Central); weeks start on its Monday.
+ */
+const sakWeekOf = (date) => {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+  return d.toISOString().slice(0, 10);
+};
+api.get('/sak/board', requireUser, (req, res) => {
+  const date = String(req.query.date || '');
+  if (!DAY.test(date)) return res.status(400).json({ error: 'Bad date.' });
+  const week = sakWeekOf(date);
+  const daily = load(sakDailyName(date), {});
+  const n = (v, hi = 5_000_000) => (typeof v === 'number' && Number.isFinite(v) ? Math.max(0, Math.min(hi, Math.floor(v))) : 0);
+  const str = (v, len) => (typeof v === 'string' ? v.slice(0, len) : '');
+  const rows = [];
+  for (const id of [req.user.id, ...friendIds(req.user.id)]) {
+    const u = getUser(id);
+    if (!u) continue;
+    const p = load(sakProfileName(id), { rev: 0, profile: null }).profile || {};
+    const s = p.stats && typeof p.stats === 'object' ? p.stats : {};
+    const t = Array.isArray(p.top) && p.top[0] && typeof p.top[0] === 'object' ? p.top[0] : null;
+    const wk = p.week && typeof p.week === 'object' && p.week.start === week ? p.week : null;
+    let biggest = null;
+    if (p.log && typeof p.log === 'object')
+      for (const [fid, e] of Object.entries(p.log)) if (e && typeof e.best === 'number' && e.best > (biggest?.cm ?? 0)) biggest = { id: fid.slice(0, 30), cm: n(e.best, 100_000) };
+    const d = daily[id];
+    rows.push({
+      userId: id,
+      name: u.name,
+      me: id === req.user.id,
+      best: n(s.best),
+      top: t ? { score: n(t.score), at: n(t.at, 1e15), mode: str(t.mode, 10), best: str(t.best, 40) } : null,
+      week: wk ? n(wk.best) : 0,
+      weekRuns: wk ? n(wk.runs, 100_000) : 0,
+      daily: d ? n(d.score) : 0,
+      dailyBest: d ? str(d.best, 40) : '',
+      runs: n(s.runs, 1e9),
+      fish: n(s.fish, 1e9),
+      marlene: n(s.marlene, 1e9),
+      biggest,
+    });
+  }
+  res.json({ week, date, rows });
+});
+
 api.post('/password', requireUser, (req, res) => {
   const r = changePassword(req.user, req.body?.old, req.body?.new);
   if (r.error) return res.status(r.status).json({ error: r.error });
