@@ -21,7 +21,7 @@ import { mountReset } from './reset.js';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3031);
 const BASE = '/games/shoallhell';
-const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:5177,http://127.0.0.1:5177,http://localhost:5178,http://127.0.0.1:5178,http://localhost:5180,http://127.0.0.1:5180,http://localhost:4180,http://127.0.0.1:4180')
+const ORIGINS = (process.env.ALLOWED_ORIGINS || 'https://josephjackman.com,https://www.josephjackman.com,http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175,http://localhost:5176,http://127.0.0.1:5176,http://localhost:5177,http://127.0.0.1:5177,http://localhost:5178,http://127.0.0.1:5178,http://localhost:5180,http://127.0.0.1:5180,http://localhost:4180,http://127.0.0.1:4180,http://localhost:5186,http://127.0.0.1:5186,http://localhost:4186,http://127.0.0.1:4186')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
@@ -53,9 +53,11 @@ const bdProfileName = (id) => `profiles/bd/${id}.json`;
 const rtProfileName = (id) => `profiles/rt/${id}.json`;
 // She's A Keeper (josephjackman.com/games/shesakeeper/) as well, with its own save and a Daily Catch board.
 const sakProfileName = (id) => `profiles/sak/${id}.json`;
+// Scaredy Loafs (josephjackman.com/games/scaredyloafs/) too: its own save (sent gzipped), plays offline and syncs later.
+const slProfileName = (id) => `profiles/sl/${id}.json`;
 /** the games that use this server; sockets say which one they are (handshake auth.game) */
-const GAMES = new Set(['shoallhell', 'syb', 'bd', 'sak', 'rt']);
-const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros', bd: "Baker's Dozen", sak: "She's A Keeper", rt: 'Relentless Tear' };
+const GAMES = new Set(['shoallhell', 'syb', 'bd', 'sak', 'rt', 'sl']);
+const GAME_NAMES = { shoallhell: 'Shoallhell', syb: 'Smash Your Bros', bd: "Baker's Dozen", sak: "She's A Keeper", rt: 'Relentless Tear', sl: 'Scaredy Loafs' };
 
 api.get('/ping', (_req, res) => res.json({ ok: true, name: 'shoallhell' }));
 
@@ -185,6 +187,23 @@ api.put('/sak/profile', requireUser, (req, res) => {
   const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
   put(sakProfileName(req.user.id), next);
   res.json({ rev: next.rev });
+});
+
+// Scaredy Loafs: its own save, same revision check, plus savedAt so a device that played offline can tell which is newer.
+api.get('/sl/me', requireUser, (req, res) => {
+  const doc = load(slProfileName(req.user.id), { rev: 0, profile: null, savedAt: 0 });
+  res.json({ user: publicUser(req.user), profile: doc.profile, rev: doc.rev, savedAt: doc.savedAt || 0 });
+});
+
+api.put('/sl/profile', requireUser, (req, res) => {
+  const { profile, rev } = req.body || {};
+  if (!profile || typeof profile !== 'object') return res.status(400).json({ error: 'No profile.' });
+  if (JSON.stringify(profile).length > MAX_PROFILE) return res.status(413).json({ error: 'Save is too large.' });
+  const doc = load(slProfileName(req.user.id), { rev: 0, profile: null, savedAt: 0 });
+  if (typeof rev === 'number' && doc.profile && rev !== doc.rev) return res.status(409).json({ error: 'Your save changed on another device.', rev: doc.rev, profile: doc.profile, savedAt: doc.savedAt || 0 });
+  const next = { rev: doc.rev + 1, profile, savedAt: Date.now() };
+  put(slProfileName(req.user.id), next);
+  res.json({ rev: next.rev, savedAt: next.savedAt });
 });
 
 const sakDailyName = (date) => `sak/daily/${date}.json`;

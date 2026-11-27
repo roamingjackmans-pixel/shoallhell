@@ -156,6 +156,28 @@ describe('server', () => {
     sb.disconnect();
   });
 
+  it('Scaredy Loafs: its own save with a revision check and savedAt', async () => {
+    const email = `sl${Date.now()}@test.dev`;
+    const up = await post('/signup', { email, password: 'password123', name: 'Loaf' });
+    const tok = up.data.token as string;
+    const empty = await fetch(`${BASE}/api/sl/me`, { headers: { Authorization: `Bearer ${tok}` } }).then((r) => r.json());
+    expect(empty.profile).toBeNull();
+    expect(empty.rev).toBe(0);
+    const saved = await post('/sl/profile', { profile: { z: 'abc' }, rev: 0 }, tok, 'PUT');
+    expect(saved.status).toBe(200);
+    expect(saved.data.rev).toBe(1);
+    expect(saved.data.savedAt).toBeGreaterThan(0);
+    const stale = await post('/sl/profile', { profile: { z: 'old' }, rev: 0 }, tok, 'PUT');
+    expect(stale.status).toBe(409);
+    expect(stale.data.profile).toEqual({ z: 'abc' });
+    expect(stale.data.savedAt).toBe(saved.data.savedAt);
+    const back = await fetch(`${BASE}/api/sl/me`, { headers: { Authorization: `Bearer ${tok}` } }).then((r) => r.json());
+    expect(back.profile).toEqual({ z: 'abc' });
+    // other games' saves stay separate
+    const sak = await fetch(`${BASE}/api/sak/me`, { headers: { Authorization: `Bearer ${tok}` } }).then((r) => r.json());
+    expect(sak.profile).toBeNull();
+  });
+
   it('Smash Your Bros: separate save, game-tagged lobbies, input relay and WebRTC signalling', async () => {
     // its own save, same account
     const empty = await fetch(`${BASE}/api/syb/me`, { headers: { Authorization: `Bearer ${tokA}` } }).then((r) => r.json());
