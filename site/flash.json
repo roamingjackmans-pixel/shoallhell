@@ -1,0 +1,111 @@
+{
+  "v": 1,
+  "id": "shoallhell",
+  "name": "Shoallhell",
+  "tagline": "Gloomhaven-style card tactics in the Dungeon Joe world",
+  "goal": "Two tenants, one seeded dive. Win scenario after scenario, a Depth deeper each time, before the 15 minutes run out.",
+  "scoring": "100 per monster killed (Elites 200, bosses 1,000), 150 per door opened, 10 per gold picked up. Every scenario won adds 1,000 × its Depth, 50 per round under 12, and 10 per HP and 20 per card your standing heroes have left. Then the next scenario starts at once.",
+  "maxScore": 1000000,
+  "pick": [
+    2,
+    3
+  ],
+  "modifiers": [
+    {
+      "id": "elite",
+      "name": "Elite Squad",
+      "text": "Every monster is an Elite, even the ones that turn up later."
+    },
+    {
+      "id": "glass",
+      "name": "Glass Cannon",
+      "text": "Every hero has 2 max HP, but every hero attack gets +3.",
+      "excludes": [
+        "thorns",
+        "volatile"
+      ]
+    },
+    {
+      "id": "blessed",
+      "name": "Blessed Day",
+      "text": "Every hero’s attack modifier deck starts each scenario with 15 Bless cards (×2) shuffled in."
+    },
+    {
+      "id": "coinflip",
+      "name": "Coin Flip",
+      "text": "Every modifier deck, yours and the monsters’, is ten ×2 and ten ×0. Nothing in between."
+    },
+    {
+      "id": "glowen",
+      "name": "Glowen Flood",
+      "text": "All four elements are always strong, and every card bonus that spends one is free."
+    },
+    {
+      "id": "fullhand",
+      "name": "Full Deck",
+      "text": "Heroes bring every card their class has, every level: about twice the usual hand.",
+      "excludes": [
+        "bottomless"
+      ]
+    },
+    {
+      "id": "veterans",
+      "name": "Veterans",
+      "text": "The heroes start at level 5: full health, their best cards and four perks. The monsters do not level up."
+    },
+    {
+      "id": "clearance",
+      "name": "Gary’s Clearance",
+      "text": "Gary is closing down: every hero starts kitted out from his whole stall (helmet, chest, shoes, hands, two potions)."
+    },
+    {
+      "id": "bossrush",
+      "name": "Boss Rush",
+      "text": "Every room after the first holds a boss (at half health) and only half of its usual pack."
+    },
+    {
+      "id": "swarm",
+      "name": "Swarm Season",
+      "text": "Twice as many monsters, each with half the health."
+    },
+    {
+      "id": "shove",
+      "name": "Big Shove",
+      "text": "Monster attacks push 1, and every push and pull goes twice as far. Mind the hazards."
+    },
+    {
+      "id": "thorns",
+      "name": "Thorny Situation",
+      "text": "Every monster has Retaliate 2.",
+      "excludes": [
+        "glass"
+      ]
+    },
+    {
+      "id": "rush",
+      "name": "Rush Hour",
+      "text": "Everyone moves 2 further, and every hero move is a Jump."
+    },
+    {
+      "id": "volatile",
+      "name": "Volatile Tide",
+      "text": "Monsters burst when they die: 2 damage to every monster next to them (1 to heroes). Chain reactions welcome.",
+      "excludes": [
+        "glass"
+      ]
+    },
+    {
+      "id": "bottomless",
+      "name": "Bottomless Hand",
+      "text": "Cards you play go straight back to your hand. Only LOST halves are gone, so no resting needed.",
+      "excludes": [
+        "fullhand"
+      ]
+    },
+    {
+      "id": "goldrush",
+      "name": "Gold Rush",
+      "text": "Three times the coins on the floor, a chest in every room, and all gold is worth double (and gold is points)."
+    }
+  ]
+}
